@@ -20,7 +20,7 @@
  *
  *  (C) Copyright 2022, Gabor Kecskemeti
  */
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::thread::sleep;
@@ -39,7 +39,12 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod bitboard;
 
-async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), Box<dyn Error>> {
+async fn play_a_game(
+    gameid: &str,
+    botid: &str,
+    client: &Client,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let resignwithgameid = format!("https://lichess.org/api/bot/game/{}/resign/", gameid);
     let movewithgameid = format!("https://lichess.org/api/bot/game/{}/move/", gameid);
     let getrq = client.get(format!(
         "https://lichess.org/api/bot/game/stream/{}",
@@ -47,6 +52,11 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
     ));
     let mut resp = getrq.send().await?.bytes_stream();
     let mut ourcolor = None;
+    let mut prevopponentmove = Instant::now();
+    let mut ourmovetime = 0;
+    let mut currentboard = PSBoard::new();
+    let mut opponent = None;
+    let mut toignore = None;
     while let Some(bytes) = resp.next().await {
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
@@ -56,15 +66,17 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
                 assert!(gamestate["speed"] != "ultraBullet");
                 assert!(gamestate["speed"] != "bullet");
                 assert!(gamestate["speed"] != "blitz");
-                let whiteplayer = gamestate["white"]["id"].dump();
-                let blackplayer = gamestate["black"]["id"].dump();
+                let whiteplayer = gamestate["white"]["id"].as_str().unwrap();
+                let blackplayer = gamestate["black"]["id"].as_str().unwrap();
                 if whiteplayer.contains(botid) {
                     ourcolor = Some(PieceColor::White);
+                    opponent = Some(String::from(blackplayer));
                 } else if blackplayer.contains(botid) {
                     ourcolor = Some(PieceColor::Black);
+                    opponent = Some(String::from(whiteplayer));
                 } else {
                     println!("WARNING: We are not even playing the game {} !", gameid);
-                    return Ok(());
+                    break;
                 }
                 &gamestate["state"]
             } else {
@@ -72,7 +84,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
             };
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
-                    let mut currentboard = PSBoard::new();
+                    currentboard = PSBoard::new();
                     let mut allmoves = gamestate["moves"].dump();
                     allmoves.retain(|c| c != '"');
                     for amove in allmoves.split_ascii_whitespace() {
@@ -82,7 +94,8 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
                         // it is our turn, let's see what we can come up with
                         let ins = Instant::now();
                         let mymove = best_move_for(&currentboard, 4, true);
-                        println!("Move took {} ms", ins.elapsed().as_millis());
+                        ourmovetime = ins.elapsed().as_millis();
+                        println!("Move took {} ms", ourmovetime);
                         let mut res = None;
                         for _ in 0..5 {
                             res = Some(
@@ -105,6 +118,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
                         }
                         if let Some(res) = res {
                             if !res.status().is_success() {
+                                client.post(resignwithgameid).send().await?;
                                 panic!(
                                     "Could not make the following move {} on the board:\n {} \n {}",
                                     mymove.0.unwrap(),
@@ -113,25 +127,51 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> Result<(), B
                                 );
                             }
                         } else {
+                            // This should not really happen
                             panic!(
                                 "Seriously could not make the following move {} on the board:\n {}",
                                 mymove.0.unwrap(),
                                 currentboard
                             );
                         }
+                    } else {
+                        // This was sent to us to inform about the opponent, we just remember when this
+                        // happened so we can decide what to do if the
+                        prevopponentmove = Instant::now();
                     }
                 } else {
+                    // The game has most likely ended in a mate etc.
                     println!(
                         "Cannot play the game {}, as its status is: {}",
                         gameid, gamestate["status"]
                     );
-                    return Ok(());
+                    break;
                 }
             }
             // Chat is not supported
+        } else {
+            // Unparsable json
+            if prevopponentmove.elapsed().as_secs() > 300 {
+                // we have not had a move from our opponent for over 5 mins.
+                // we will just cancel the game
+                let op = format!(
+                    "https://lichess.org/api/bot/game/{}/{}",
+                    gameid,
+                    if currentboard.half_moves_since_pawn == 0 {
+                        toignore = opponent;
+                        println!("Due to initial inactivity aborting the game, we will move on to another opponent");
+                        "abort"
+                    } else {
+                        println!("Due to midgame inactivity resigning the game, we will move on to another opponent");
+                        "resign"
+                    }
+                );
+                client.post(op).send().await?;
+                break;
+            }
         }
     }
-    Ok(())
+    Ok(toignore)
 }
 
 /*
@@ -197,18 +237,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 let targetbot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
-                let postreq =
-                    client.post(format!("https://lichess.org/api/challenge/{}", targetbot));
-                let postreq = postreq.body(
-                    object! {
-                    "rated": true,
-                    "clock.limit": 800,
-                            "clock.increment":10,
-                    "color": "random",
-                    "variant": "standard",
-                    }
-                    .dump(),
-                );
+                let mut reqform = HashMap::new();
+                reqform.insert("rated", "true");
+                reqform.insert("clock.limit", "600");
+                reqform.insert("clock.increment", "10");
+                reqform.insert("color", "random");
+                reqform.insert("variant", "standard");
+                let postreq = client
+                    .post(format!("https://lichess.org/api/challenge/{}", targetbot))
+                    .form(&reqform);
                 println!("Challenging bot: {}", targetbot);
                 postreq.send().await?;
             }
@@ -260,10 +297,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 }
                                 postreq.send().await;
                             } else if event["type"] == "challengeDeclined" {
-                                println!("Challange declined {}", event.pretty(1));
-                                declining_bots.insert(String::from(
-                                    event["challenge"]["destUser"]["id"].as_str().unwrap(),
-                                ));
+                                let decliner =
+                                    event["challenge"]["destUser"]["id"].as_str().unwrap();
+                                println!("Challange declined by {}", decliner);
+                                declining_bots.insert(String::from(decliner));
                             }
                         }
                     }
@@ -276,7 +313,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         if let Some(gameid) = gameid {
             println!("Starting to play game");
-            play_a_game(gameid.as_str(), botid, &client).await?;
+            let result = play_a_game(gameid.as_str(), botid, &client).await?;
+            // If we get a non-responsive opponent we ignore it from now on
+            if let Some(problematicopponent) = result {
+                declining_bots.insert(problematicopponent);
+            }
         } else {
             println!("No game at the moment");
         }
