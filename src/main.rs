@@ -27,7 +27,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use json::object;
 use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::Client;
@@ -57,6 +56,7 @@ async fn play_a_game(
     let mut currentboard = PSBoard::new();
     let mut opponent = None;
     let mut toignore = None;
+    let mut impossoblemove = None;
     while let Some(bytes) = resp.next().await {
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
@@ -84,6 +84,16 @@ async fn play_a_game(
             };
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
+                    if let Some(impossoblemove) = impossoblemove {
+                        client.post(resignwithgameid).send().await?;
+                        panic!(
+                            "Could not make the following move {} on the board:\n {} \n {}",
+                            impossoblemove,
+                            currentboard,
+                            gamestate["moves"].dump()
+                        );
+                    }
+
                     currentboard = PSBoard::new();
                     let mut allmoves = gamestate["moves"].dump();
                     allmoves.retain(|c| c != '"');
@@ -118,13 +128,7 @@ async fn play_a_game(
                         }
                         if let Some(res) = res {
                             if !res.status().is_success() {
-                                client.post(resignwithgameid).send().await?;
-                                panic!(
-                                    "Could not make the following move {} on the board:\n {} \n {}",
-                                    mymove.0.unwrap(),
-                                    currentboard,
-                                    gamestate["moves"].dump()
-                                );
+                                impossoblemove = Some(mymove.0.unwrap());
                             }
                         } else {
                             // This should not really happen
@@ -206,7 +210,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
     let mut declining_bots = HashSet::new();
     loop {
-        println!("Searching for previous, unfinished games");
+        println!("Searching for previous, unfinished games..");
         let currentlyplaying = client
             .get("https://lichess.org/api/account/playing")
             .send()
@@ -216,9 +220,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if !agame.is_null() {
             println!("Resuming game...");
             gameid = Some(String::from(agame["gameId"].as_str().unwrap()));
+        } else {
+            println!("\tdid not find any.")
         }
         if gameid.is_none() {
-            if thread_rng().gen_bool(0.5) {
+            if thread_rng().gen_bool(0.2) {
                 let mut resp = client
                     .get("https://lichess.org/api/bot/online")
                     .send()
@@ -237,12 +243,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 let targetbot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
-                let mut reqform = HashMap::new();
-                reqform.insert("rated", "true");
-                reqform.insert("clock.limit", "600");
-                reqform.insert("clock.increment", "10");
-                reqform.insert("color", "random");
-                reqform.insert("variant", "standard");
+                let reqform = HashMap::from([
+                    ("rated", "true"),
+                    ("clock.limit", "600"),
+                    ("clock.increment", "10"),
+                    ("color", "random"),
+                    ("variant", "standard"),
+                ]);
                 let postreq = client
                     .post(format!("https://lichess.org/api/challenge/{}", targetbot))
                     .form(&reqform);
@@ -288,18 +295,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 ));
                                 if let Some(reason) = reason {
-                                    postreq = postreq.body(object! {"reason": reason}.dump())
+                                    println!("Declining challenge because: {}", reason);
+                                    let reasonmap = HashMap::from([("reason", reason)]);
+                                    postreq = postreq.form(&reasonmap);
                                 } else {
                                     println!(
                                         "Challange accepted from {}",
                                         event["challenger"]["id"].as_str().unwrap()
                                     );
                                 }
-                                postreq.send().await;
+                                postreq.send().await?;
                             } else if event["type"] == "challengeDeclined" {
                                 let decliner =
                                     event["challenge"]["destUser"]["id"].as_str().unwrap();
-                                println!("Challange declined by {}", decliner);
+                                println!(
+                                    "Challange declined by {} due to {}",
+                                    decliner,
+                                    event["challenge"]["declineReason"].as_str().unwrap()
+                                );
                                 declining_bots.insert(String::from(decliner));
                             }
                         }

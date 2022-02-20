@@ -556,6 +556,13 @@ impl PSBoard {
     // This will allow further evaluation
     pub fn make_a_move(&self, themove: &PossibleMove) -> PSBoard {
         let mut raw = self.board;
+        let prevpiece = self.get_loc(&themove.to);
+        if let Some(ep) = &self.ep {
+            if ep.0 == themove.to.0 && ep.1 == themove.to.1 {
+                // En passant was done, the long move pawn was taken
+                raw[themove.from.0 as usize][themove.to.1 as usize] = None;
+            }
+        }
         // The move for almost all the cases
         raw[themove.to.0 as usize][themove.to.1 as usize] =
             raw[themove.from.0 as usize][themove.from.1 as usize];
@@ -590,28 +597,42 @@ impl PSBoard {
             castling: self.castling & {
                 if currpiece.kind == PieceKind::King {
                     if currpiece.color == PieceColor::White {
-                        3u8
+                        3
                     } else {
-                        12u8
+                        12
                     }
                 } else if currpiece.kind == PieceKind::Rook {
                     if themove.from.1 == 0 {
                         if currpiece.color == PieceColor::White {
-                            7u8
+                            7
                         } else {
-                            13u8
+                            13
                         }
                     } else if themove.from.1 == 7 {
                         if currpiece.color == PieceColor::White {
-                            11u8
+                            11
                         } else {
-                            14u8
+                            14
                         }
                     } else {
-                        15u8
+                        15
+                    }
+                } else if (themove.to.0 == 0 || themove.to.0 == 7)
+                    && (themove.to.1 == 0 || themove.to.1 == 7)
+                {
+                    if let Some(taken) = prevpiece {
+                        if taken.kind == PieceKind::Rook {
+                            let mut rookside = if themove.to.1 == 7 { 1u8 } else { 2 };
+                            rookside <<= if themove.to.0 == 0 { 2 } else { 0 };
+                            (!rookside) & 15
+                        } else {
+                            15
+                        }
+                    } else {
+                        15
                     }
                 } else {
-                    15u8
+                    15
                 }
             },
             half_moves_since_pawn: self.half_moves_since_pawn + 1,
