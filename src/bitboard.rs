@@ -557,10 +557,16 @@ impl PSBoard {
     pub fn make_a_move(&self, themove: &PossibleMove) -> PSBoard {
         let mut raw = self.board;
         let prevpiece = self.get_loc(&themove.to);
-        if let Some(ep) = &self.ep {
-            if ep.0 == themove.to.0 && ep.1 == themove.to.1 {
-                // En passant was done, the long move pawn was taken
-                raw[themove.from.0 as usize][themove.to.1 as usize] = None;
+        {
+            let currpiece = raw[themove.from.0 as usize][themove.from.1 as usize]
+                .as_ref()
+                .unwrap();
+            if let Some(ep) = &self.ep {
+                if currpiece.kind == PieceKind::Pawn && ep.0 == themove.to.0 && ep.1 == themove.to.1
+                {
+                    // En passant was done, the long move pawn was taken
+                    raw[themove.from.0 as usize][themove.to.1 as usize] = None;
+                }
             }
         }
         // The move for almost all the cases
@@ -678,7 +684,7 @@ impl PSBoard {
         } else {
             // En passant
             if let Some(ep_loc) = self.ep.as_ref() {
-                pos.0 == ep_loc.0 as i8 && pos.1 == ep_loc.1 as i8
+                pos.0 == ep_loc.0 && pos.1 == ep_loc.1
             } else {
                 // Nothing to capture
                 false

@@ -52,20 +52,32 @@ async fn play_a_game(
     let mut resp = getrq.send().await?.bytes_stream();
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
-    let mut ourmovetime = 0;
+    let mut ourmovetime = 3000;
     let mut currentboard = PSBoard::new();
     let mut opponent = None;
     let mut toignore = None;
     let mut impossoblemove = None;
+    let mut mindepth = 4;
+    let mut depth = mindepth;
     while let Some(bytes) = resp.next().await {
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
             let gamestate = if gamestate["type"] == "gameFull" {
                 assert!(gamestate["variant"]["short"] == "Std");
                 assert!(gamestate["initialFen"] == "startpos");
-                assert!(gamestate["speed"] != "ultraBullet");
-                assert!(gamestate["speed"] != "bullet");
-                assert!(gamestate["speed"] != "blitz");
+                if gamestate["speed"] == "ultraBullet" {
+                    mindepth = 1;
+                } else if gamestate["speed"] == "bullet" {
+                    mindepth = 2;
+                } else if gamestate["speed"] == "blitz" {
+                    mindepth = 3;
+                } else if gamestate["speed"] == "rapid" {
+                    mindepth = 4;
+                } else if gamestate["speed"] == "classical" {
+                    mindepth = 5;
+                } else if gamestate["speed"] == "correspondace" {
+                    mindepth = 6;
+                }
                 let whiteplayer = gamestate["white"]["id"].as_str().unwrap();
                 let blackplayer = gamestate["black"]["id"].as_str().unwrap();
                 if whiteplayer.contains(botid) {
@@ -93,7 +105,8 @@ async fn play_a_game(
                             gamestate["moves"].dump()
                         );
                     }
-
+                    let white_rem_time = gamestate["wtime"].as_u64().unwrap() as u128;
+                    let black_rem_time = gamestate["btime"].as_u64().unwrap() as u128;
                     currentboard = PSBoard::new();
                     let mut allmoves = gamestate["moves"].dump();
                     allmoves.retain(|c| c != '"');
@@ -101,10 +114,20 @@ async fn play_a_game(
                         currentboard = currentboard.make_an_uci_move(amove);
                     }
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
+                        let our_rem_time = if currentboard.who_moves == PieceColor::White {
+                            white_rem_time
+                        } else {
+                            black_rem_time
+                        };
                         // it is our turn, let's see what we can come up with
                         let ins = Instant::now();
-                        let mymove = best_move_for(&currentboard, 4, true);
+                        let mymove = best_move_for(&currentboard, depth, true);
                         ourmovetime = ins.elapsed().as_millis();
+                        if (our_rem_time / ourmovetime) > 100 {
+                            depth += 1;
+                        } else if (our_rem_time / ourmovetime) < 25 {
+                            depth = (depth - 1).max(mindepth);
+                        }
                         println!("Move took {} ms", ourmovetime);
                         let mut res = None;
                         for _ in 0..5 {
@@ -224,7 +247,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("\tdid not find any.")
         }
         if gameid.is_none() {
-            if thread_rng().gen_bool(0.2) {
+            if thread_rng().gen_bool(0.5) {
                 let mut resp = client
                     .get("https://lichess.org/api/bot/online")
                     .send()
@@ -277,13 +300,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     reason = Some("variant");
                                 } else if event["rated"] != true {
                                     reason = Some("casual");
-                                } else if event["speed"] == "ultraBullet"
-                                    || event["speed"] == "bullet"
-                                    || event["speed"] == "blitz"
-                                {
-                                    reason = Some("tooFast");
-                                } else if event["speed"] == "correspondance" {
-                                    reason = Some("tooSlow");
                                 }
                                 let mut postreq = client.post(format!(
                                     "https://lichess.org/api/challenge/{}/{}",
