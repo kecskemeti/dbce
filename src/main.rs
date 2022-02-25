@@ -56,7 +56,7 @@ async fn play_a_game(
     let mut currentboard = PSBoard::new();
     let mut opponent = None;
     let mut toignore = None;
-    let mut impossoblemove = None;
+    let mut impossiblemove = None;
     let mut mindepth = 4;
     let mut depth = mindepth;
     while let Some(bytes) = resp.next().await {
@@ -96,11 +96,11 @@ async fn play_a_game(
             };
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
-                    if let Some(impossoblemove) = impossoblemove {
+                    if let Some(impossiblemove) = impossiblemove {
                         client.post(resignwithgameid).send().await?;
                         panic!(
                             "Could not make the following move {} on the board:\n {} \n {}",
-                            impossoblemove,
+                            impossiblemove,
                             currentboard,
                             gamestate["moves"].dump()
                         );
@@ -129,37 +129,20 @@ async fn play_a_game(
                             depth = (depth - 1).max(mindepth);
                         }
                         println!("Move took {} ms", ourmovetime);
-                        let mut res = None;
                         for _ in 0..5 {
-                            res = Some(
-                                client
-                                    .post(format!(
-                                        "{}{}",
-                                        movewithgameid,
-                                        mymove.0.as_ref().unwrap()
-                                    ))
-                                    .send()
-                                    .await?,
-                            );
-                            if let Some(res) = res.as_ref() {
+                            if let Ok(res) = client
+                                .post(format!("{}{}", movewithgameid, mymove.0.as_ref().unwrap()))
+                                .send()
+                                .await
+                            {
                                 if res.status().is_success() {
+                                    impossiblemove = None;
                                     break;
                                 }
                             }
                             println!("Move was not possible to send, retry..");
                             sleep(Duration::from_millis(500));
-                        }
-                        if let Some(res) = res {
-                            if !res.status().is_success() {
-                                impossoblemove = Some(mymove.0.unwrap());
-                            }
-                        } else {
-                            // This should not really happen
-                            panic!(
-                                "Seriously could not make the following move {} on the board:\n {}",
-                                mymove.0.unwrap(),
-                                currentboard
-                            );
+                            impossiblemove = Some(mymove.0.as_ref().unwrap().clone());
                         }
                     } else {
                         // This was sent to us to inform about the opponent, we just remember when this
@@ -178,7 +161,7 @@ async fn play_a_game(
             // Chat is not supported
         } else {
             // Unparsable json
-            if prevopponentmove.elapsed().as_secs() > 300 {
+            if (prevopponentmove.elapsed().as_millis() as i128 - ourmovetime as i128) > 300000 {
                 // we have not had a move from our opponent for over 5 mins.
                 // we will just cancel the game
                 let op = format!(
@@ -222,6 +205,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         input.read_line(&mut line).unwrap();
     }
     let botid = line.trim();
+    println!("Try resuming previous game?");
+    let mut line = String::new();
+    {
+        input.read_line(&mut line).unwrap();
+    }
+    let resume = line.trim();
     let mut headers = HeaderMap::new();
     headers.insert(
         "Authorization",
@@ -232,21 +221,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build()
         .unwrap();
     let mut declining_bots = HashSet::new();
-    loop {
+
+    let mut gameid = None;
+    if resume.to_lowercase().starts_with("y") {
         println!("Searching for previous, unfinished games..");
         let currentlyplaying = client
             .get("https://lichess.org/api/account/playing")
             .send()
             .await?;
         let agame = &json::parse(currentlyplaying.text().await?.as_str())?["nowPlaying"][0];
-        let mut gameid = None;
         if !agame.is_null() {
             println!("Resuming game...");
             gameid = Some(String::from(agame["gameId"].as_str().unwrap()));
         } else {
             println!("\tdid not find any.")
         }
-        if gameid.is_none() {
+    }
+    loop {
+        if let Some(gameid_str) = &gameid {
+            println!("Starting to play game {}", gameid_str);
+            let result = play_a_game(gameid_str.as_str(), botid, &client).await?;
+            // If we get a non-responsive opponent we ignore it from now on
+            if let Some(problematicopponent) = result {
+                declining_bots.insert(problematicopponent);
+            }
+            gameid = None;
+        } else {
+            println!("No game at the moment");
             if thread_rng().gen_bool(0.5) {
                 let mut resp = client
                     .get("https://lichess.org/api/bot/online")
@@ -339,16 +340,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-        }
-        if let Some(gameid) = gameid {
-            println!("Starting to play game");
-            let result = play_a_game(gameid.as_str(), botid, &client).await?;
-            // If we get a non-responsive opponent we ignore it from now on
-            if let Some(problematicopponent) = result {
-                declining_bots.insert(problematicopponent);
-            }
-        } else {
-            println!("No game at the moment");
         }
     }
 }
