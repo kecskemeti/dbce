@@ -33,6 +33,8 @@ static CASTLINGORDER: &str = "QKqk";
 static CASTLINGMASKS: [u8; 4] = [8, 4, 2, 1];
 static MATE: f32 = 1000.0;
 
+pub static mut PSBCOUNT: u32 = 0;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PieceColor {
     Black,
@@ -118,6 +120,12 @@ impl PossibleMove {
 }
 
 impl Display for PossibleMove {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.string())
+    }
+}
+
+impl Debug for PossibleMove {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.string())
     }
@@ -1141,6 +1149,9 @@ pub fn best_move_for(
             for curr_move in moves {
                 // println!("{}  Testing move {:?}", prefix, curr_move);
                 let board_with_move = start_board.make_a_move(&curr_move);
+                unsafe {
+                    PSBCOUNT += 1;
+                }
                 let curr_score = if max_depth == 0 {
                     board_with_move.score()
                 } else {

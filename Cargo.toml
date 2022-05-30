@@ -1,7 +1,7 @@
 [package]
 name = "dbce"
 version = "0.1.0"
-authors = ["Gabor Kecskemeti (acer) <g.kecskemeti@ljmu.ac.uk>"]
+authors = ["Gabor Kecskemeti (acer)"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,8 +9,8 @@ edition = "2018"
 [dependencies]
 lazy_static = "1.4.0"
 custom_error = "1.9.2"
-rand = "0.8.4"
-tikv-jemallocator = "0.4.0"
+rand = "0.8.5"
+tikv-jemallocator = "0.4.1"
 reqwest = { version = "0.11.9", features = ["stream"] }
 tokio = { version = "1.17.0", features = ["full"] }
 tokio-stream = { version = "0.1.8", features = ["fs"] }
@@ -19,4 +19,5 @@ futures-util = "0.3.21"
 json = "0.12.4"
 
 [profile.release]
+debug = 1
 lto = true

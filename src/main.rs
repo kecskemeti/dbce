@@ -63,8 +63,8 @@ async fn play_a_game(
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
             let gamestate = if gamestate["type"] == "gameFull" {
-                assert!(gamestate["variant"]["short"] == "Std");
-                assert!(gamestate["initialFen"] == "startpos");
+                assert_eq!(gamestate["variant"]["short"], "Std");
+                assert_eq!(gamestate["initialFen"], "startpos");
                 if gamestate["speed"] == "ultraBullet" {
                     mindepth = 1;
                 } else if gamestate["speed"] == "bullet" {
@@ -120,9 +120,15 @@ async fn play_a_game(
                             black_rem_time
                         };
                         // it is our turn, let's see what we can come up with
+                        unsafe {
+                            bitboard::PSBCOUNT = 0;
+                        }
                         let ins = Instant::now();
                         let mymove = best_move_for(&currentboard, depth, true);
                         ourmovetime = ins.elapsed().as_millis();
+                        unsafe {
+                            println!("{} kNodes/sec", bitboard::PSBCOUNT as u128 / ourmovetime);
+                        }
                         if (our_rem_time / ourmovetime) > 100 {
                             depth += 1;
                         } else if (our_rem_time / ourmovetime) < 25 {
@@ -216,14 +222,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "Authorization",
         format!("Bearer {}", authtoken).parse().unwrap(),
     );
-    let client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap();
+    let client = Client::builder().default_headers(headers).build().unwrap();
     let mut declining_bots = HashSet::new();
 
     let mut gameid = None;
-    if resume.to_lowercase().starts_with("y") {
+    if resume.to_lowercase().starts_with('y') {
         println!("Searching for previous, unfinished games..");
         let currentlyplaying = client
             .get("https://lichess.org/api/account/playing")
@@ -298,9 +301,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let event = &event["challenge"];
                                 let mut reason = None;
                                 if event["variant"]["key"] != "standard" {
-                                    reason = Some("variant");
+                                    reason = Some("standard");
                                 } else if event["rated"] != true {
-                                    reason = Some("casual");
+                                    reason = Some("rated");
                                 }
                                 let mut postreq = client.post(format!(
                                     "https://lichess.org/api/challenge/{}/{}",
