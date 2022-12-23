@@ -10,12 +10,12 @@ edition = "2018"
 lazy_static = "1.4.0"
 custom_error = "1.9.2"
 rand = "0.8.5"
-tikv-jemallocator = "0.4.1"
+tikv-jemallocator = "0.5.0"
 reqwest = { version = "0.11.9", features = ["stream"] }
-tokio = { version = "1.17.0", features = ["full"] }
-tokio-stream = { version = "0.1.8", features = ["fs"] }
-tokio-util = { version = "0.7.0", features = ["full"] }
-futures-util = "0.3.21"
+tokio = { version = "1.23.0", features = ["full"] }
+tokio-stream = { version = "0.1.11", features = ["fs"] }
+tokio-util = { version = "0.7.4", features = ["full"] }
+futures-util = "0.3.25"
 json = "0.12.4"
 
 [profile.release]
