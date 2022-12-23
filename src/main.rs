@@ -31,12 +31,13 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::Client;
 
-use crate::bitboard::{best_move_for, PSBoard, PieceColor};
+use crate::bitboard::{Engine, PSBoard, PieceColor};
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod bitboard;
+mod humaninteractions;
 
 async fn play_a_game(
     gameid: &str,
@@ -59,6 +60,7 @@ async fn play_a_game(
     let mut impossiblemove = None;
     let mut mindepth = 4;
     let mut depth = mindepth;
+    let mut engine = Engine::new();
     while let Some(bytes) = resp.next().await {
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
@@ -124,7 +126,8 @@ async fn play_a_game(
                             bitboard::PSBCOUNT = 0;
                         }
                         let ins = Instant::now();
-                        let mymove = best_move_for(&currentboard, depth, true);
+                        println!("Using {} depth for search", depth);
+                        let mymove = engine.best_move_for(&currentboard, depth, true);
                         ourmovetime = ins.elapsed().as_millis();
                         unsafe {
                             println!("{} kNodes/sec", bitboard::PSBCOUNT as u128 / ourmovetime);
@@ -269,19 +272,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 }
-                let targetbot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
-                let reqform = HashMap::from([
+                let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
+                static CHALLENGE_TIME_CONTROLS: [(&str, &str); 6] = [
+                    ("600", "10"),
+                    ("300", "5"),
+                    ("180", "3"),
+                    ("60", "1"),
+                    ("30", "1"),
+                    ("15", "0"),
+                ];
+                let (current_limit, current_increment) = CHALLENGE_TIME_CONTROLS
+                    [thread_rng().gen_range(0..CHALLENGE_TIME_CONTROLS.len())];
+                let req_form = HashMap::from([
                     ("rated", "true"),
-                    ("clock.limit", "600"),
-                    ("clock.increment", "10"),
+                    ("clock.limit", current_limit),
+                    ("clock.increment", current_increment),
                     ("color", "random"),
                     ("variant", "standard"),
                 ]);
-                let postreq = client
-                    .post(format!("https://lichess.org/api/challenge/{}", targetbot))
-                    .form(&reqform);
-                println!("Challenging bot: {}", targetbot);
-                postreq.send().await?;
+                let post_req = client
+                    .post(format!("https://lichess.org/api/challenge/{}", target_bot))
+                    .form(&req_form);
+                println!("Challenging bot: {}", target_bot);
+                post_req.send().await?;
             }
             println!("Waiting for events:");
             {
