@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
 use crate::bitboard::{Engine, PSBoard, PieceColor};
 
@@ -51,7 +51,7 @@ async fn play_a_game(
         "https://lichess.org/api/bot/game/stream/{}",
         gameid
     ));
-    let mut resp = getrq.send().await?.bytes_stream();
+    let mut resp = lichess_api_call(getrq).await?.bytes_stream();
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
     let mut ourmovetime = 3000;
@@ -85,7 +85,7 @@ async fn play_a_game(
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
                     if let Some(impossiblemove) = impossiblemove {
-                        client.post(resignwithgameid).send().await?;
+                        lichess_api_call(client.post(resignwithgameid)).await?;
                         panic!(
                             "Could not make the following move {} on the board:\n {} \n {}",
                             impossiblemove,
@@ -126,10 +126,12 @@ async fn play_a_game(
                             println!("{} kNodes/sec", bitboard::PSBCOUNT as u64 / ourmovetime);
                         }
                         for _ in 0..5 {
-                            if let Ok(res) = client
-                                .post(format!("{}{}", movewithgameid, mymove.0.as_ref().unwrap()))
-                                .send()
-                                .await
+                            if let Ok(res) = lichess_api_call(client.post(format!(
+                                "{}{}",
+                                movewithgameid,
+                                mymove.0.as_ref().unwrap()
+                            )))
+                            .await
                             {
                                 if res.status().is_success() {
                                     impossiblemove = None;
@@ -172,12 +174,21 @@ async fn play_a_game(
                         "resign"
                     }
                 );
-                client.post(op).send().await?;
+                lichess_api_call(client.post(op)).await?;
                 break;
             }
         }
     }
     Ok(toignore)
+}
+
+async fn lichess_api_call(client_op: RequestBuilder) -> Result<Response, Box<dyn Error>> {
+    let resp = client_op.send().await?;
+    if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+        println!("Lichess rate limiting request, obeying with a bit more than a minute long delay");
+        sleep(Duration::from_secs(61));
+    }
+    Ok(resp)
 }
 
 /*
@@ -218,10 +229,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut gameid = None;
     if resume.to_lowercase().starts_with('y') {
         println!("Searching for previous, unfinished games..");
-        let currentlyplaying = client
-            .get("https://lichess.org/api/account/playing")
-            .send()
-            .await?;
+        let currentlyplaying =
+            lichess_api_call(client.get("https://lichess.org/api/account/playing")).await?;
         let agame = &json::parse(currentlyplaying.text().await?.as_str())?["nowPlaying"][0];
         if !agame.is_null() {
             println!("Resuming game...");
@@ -242,9 +251,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else {
             println!("No game at the moment");
             if thread_rng().gen_bool(0.5) {
-                let mut resp = client
-                    .get("https://lichess.org/api/bot/online")
-                    .send()
+                let mut resp = lichess_api_call(client.get("https://lichess.org/api/bot/online"))
                     .await?
                     .bytes_stream();
                 println!("Searching for bots: ");
@@ -286,15 +293,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .post(format!("https://lichess.org/api/challenge/{}", target_bot))
                     .form(&req_form);
                 println!("Challenging bot: {}", target_bot);
-                post_req.send().await?;
+                let post_resp = lichess_api_call(post_req).await?;
+                println!("{:?}", post_resp);
             }
             println!("Waiting for events:");
             {
-                let mut events = client
-                    .get("https://lichess.org/api/stream/event")
-                    .send()
-                    .await?
-                    .bytes_stream();
+                let mut events =
+                    lichess_api_call(client.get("https://lichess.org/api/stream/event"))
+                        .await?
+                        .bytes_stream();
                 let startwait = Instant::now();
                 'outer: while let Some(bytes) = events.next().await {
                     for eventupdate in String::from_utf8(Vec::from(bytes?.as_ref()))?.lines() {
@@ -329,7 +336,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         event["challenger"]["id"].as_str().unwrap()
                                     );
                                 }
-                                postreq.send().await?;
+                                lichess_api_call(postreq).await?;
                             } else if event["type"] == "challengeDeclined" {
                                 let decliner =
                                     event["challenge"]["destUser"]["id"].as_str().unwrap();
