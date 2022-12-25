@@ -101,6 +101,8 @@ async fn play_a_game(
                     for amove in allmoves.split_ascii_whitespace() {
                         currentboard = currentboard.make_an_uci_move(amove);
                     }
+                    // we make sure we still have at least 20 moves to do before we run out of time.
+                    let deadline_divisor = 20 * if currentboard.move_count == 0 { 10 } else { 1 };
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
                         let our_rem_time = if currentboard.who_moves == PieceColor::White {
                             white_rem_time
@@ -108,7 +110,8 @@ async fn play_a_game(
                             black_rem_time
                         };
 
-                        let deadline = Duration::from_millis(our_rem_time / 20); // we make sure we still have 20 moves.
+                        let deadline =
+                            Duration::from_millis(1.max(our_rem_time / deadline_divisor));
 
                         println!("Set a deadline of: {:?}", deadline);
                         // it is our turn, let's see what we can come up with
