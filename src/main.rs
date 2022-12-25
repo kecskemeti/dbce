@@ -21,6 +21,7 @@
  *  (C) Copyright 2022, Gabor Kecskemeti
  */
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::error::Error;
 use std::io;
 use std::thread::sleep;
@@ -58,8 +59,6 @@ async fn play_a_game(
     let mut opponent = None;
     let mut toignore = None;
     let mut impossiblemove = None;
-    let mut mindepth = 4;
-    let mut depth = mindepth;
     let mut engine = Engine::new();
     while let Some(bytes) = resp.next().await {
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
@@ -67,19 +66,6 @@ async fn play_a_game(
             let gamestate = if gamestate["type"] == "gameFull" {
                 assert_eq!(gamestate["variant"]["short"], "Std");
                 assert_eq!(gamestate["initialFen"], "startpos");
-                if gamestate["speed"] == "ultraBullet" {
-                    mindepth = 1;
-                } else if gamestate["speed"] == "bullet" {
-                    mindepth = 2;
-                } else if gamestate["speed"] == "blitz" {
-                    mindepth = 3;
-                } else if gamestate["speed"] == "rapid" {
-                    mindepth = 4;
-                } else if gamestate["speed"] == "classical" {
-                    mindepth = 5;
-                } else if gamestate["speed"] == "correspondace" {
-                    mindepth = 6;
-                }
                 let whiteplayer = gamestate["white"]["id"].as_str().unwrap();
                 let blackplayer = gamestate["black"]["id"].as_str().unwrap();
                 if whiteplayer.contains(botid) {
@@ -107,8 +93,8 @@ async fn play_a_game(
                             gamestate["moves"].dump()
                         );
                     }
-                    let white_rem_time = gamestate["wtime"].as_u64().unwrap() as u128;
-                    let black_rem_time = gamestate["btime"].as_u64().unwrap() as u128;
+                    let white_rem_time = gamestate["wtime"].as_u64().unwrap();
+                    let black_rem_time = gamestate["btime"].as_u64().unwrap();
                     currentboard = PSBoard::new();
                     let mut allmoves = gamestate["moves"].dump();
                     allmoves.retain(|c| c != '"');
@@ -121,23 +107,21 @@ async fn play_a_game(
                         } else {
                             black_rem_time
                         };
+
+                        let deadline = Duration::from_millis(our_rem_time / 20); // we make sure we still have 20 moves.
+
+                        println!("Set a deadline of: {:?}", deadline);
                         // it is our turn, let's see what we can come up with
                         unsafe {
                             bitboard::PSBCOUNT = 0;
                         }
                         let ins = Instant::now();
-                        println!("Using {} depth for search", depth);
-                        let mymove = engine.best_move_for(&currentboard, depth, true);
-                        ourmovetime = ins.elapsed().as_millis();
+                        let mymove = engine.best_move_for(&currentboard, true, &deadline);
+                        ourmovetime = ins.elapsed().as_millis().try_into().unwrap();
+                        println!("Move took {} ms", ourmovetime,);
                         unsafe {
-                            println!("{} kNodes/sec", bitboard::PSBCOUNT as u128 / ourmovetime);
+                            println!("{} kNodes/sec", bitboard::PSBCOUNT as u64 / ourmovetime);
                         }
-                        if (our_rem_time / ourmovetime) > 100 {
-                            depth += 1;
-                        } else if (our_rem_time / ourmovetime) < 25 {
-                            depth = (depth - 1).max(mindepth);
-                        }
-                        println!("Move took {} ms", ourmovetime);
                         for _ in 0..5 {
                             if let Ok(res) = client
                                 .post(format!("{}{}", movewithgameid, mymove.0.as_ref().unwrap()))
@@ -273,12 +257,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
-                static CHALLENGE_TIME_CONTROLS: [(&str, &str); 6] = [
+                static CHALLENGE_TIME_CONTROLS: [(&str, &str); 11] = [
                     ("600", "10"),
+                    ("600", "0"),
                     ("300", "5"),
+                    ("300", "0"),
                     ("180", "3"),
+                    ("180", "0"),
                     ("60", "1"),
+                    ("60", "0"),
                     ("30", "1"),
+                    ("30", "0"),
                     ("15", "0"),
                 ];
                 let (current_limit, current_increment) = CHALLENGE_TIME_CONTROLS

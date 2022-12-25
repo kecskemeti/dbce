@@ -23,13 +23,18 @@
 
 extern crate rand;
 
-use crate::bitboard::PieceKind::*;
-use crate::PieceColor::*;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::cmp::{max, min};
+use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::time::Instant;
+
+use crate::bitboard::PieceKind::*;
+use crate::PieceColor::*;
 
 use self::rand::{thread_rng, Rng};
 
@@ -816,13 +821,38 @@ impl PSBoard {
 
 pub struct Engine {
     vec_cache: Arc<Mutex<Vec<(Vec<PossibleMove>, Vec<(PossibleMove, f32)>)>>>,
+    scoring_timings: Arc<Mutex<VecDeque<Duration>>>,
 }
 
 impl Engine {
     pub fn new() -> Engine {
+        let sample_board = PSBoard::new();
+        let timings_base = (1..50)
+            .map(|_| Engine::timed_score(&sample_board).1)
+            .collect();
         Engine {
             vec_cache: Arc::new(Mutex::new(Vec::new())),
+            scoring_timings: Arc::new(Mutex::new(timings_base)),
         }
+    }
+
+    fn timed_score(board: &PSBoard) -> (f32, Duration) {
+        let pre = Instant::now();
+        (board.score(), pre.elapsed())
+    }
+
+    fn timing_remembering_score(&mut self, board: &PSBoard) -> f32 {
+        let (ret, dur) = Engine::timed_score(board);
+        let mut timing_data = self.scoring_timings.borrow_mut().lock().unwrap();
+        timing_data.pop_front();
+        timing_data.push_back(dur);
+        ret
+    }
+
+    fn avg_scoring_duration(&self) -> Duration {
+        let timing_data = self.scoring_timings.lock().unwrap();
+        let all_duration: Duration = timing_data.iter().sum();
+        all_duration / timing_data.len() as u32
     }
 
     fn get_cached(&mut self) -> (Vec<PossibleMove>, Vec<(PossibleMove, f32)>) {
@@ -853,14 +883,10 @@ impl Engine {
     pub fn best_move_for(
         &mut self,
         start_board: &PSBoard,
-        max_depth: u8,
         decide: bool,
+        deadline: &Duration,
     ) -> (Option<PossibleMove>, f32) {
-        // let prefix: String = std::iter::repeat(' ')
-        //     .take(4 as usize - max_depth as usize)
-        //     .collect();
-        // println!("{} ==== Current depth: {}, decide {}\n{}", prefix, max_depth, decide, start_board);
-        let sc = start_board.score();
+        let sc = self.timing_remembering_score(start_board);
         let mut ret = (None, sc);
         if (sc.abs() - MATE).abs() > 0.1 {
             let (mut moves, mut scores) = self.get_cached();
@@ -868,83 +894,89 @@ impl Engine {
             start_board.gen_potential_moves(true, &mut moves);
             let movecount = moves.len();
             //            println!("{} Potential moves: {:?}", prefix, moves);
-            if movecount == 0 {
-                panic!("Could not generate a single move!!!");
-            } else {
-                while let Some(curr_move) = moves.pop() {
-                    //                    println!("{}  Testing move {:?}", prefix, curr_move);
-                    let board_with_move = start_board.make_a_move(&curr_move);
-                    unsafe {
-                        PSBCOUNT += 1;
-                    }
-                    let curr_score = if max_depth == 0 {
-                        board_with_move.score()
-                    } else {
-                        (self.best_move_for(&board_with_move, max_depth - 1, false).1 * 10.0 + sc)
-                            / 11.0
-                    };
-                    // println!("{}  Acquired score: {}", prefix, curr_score);
-                    scores.push((curr_move, curr_score));
-                    if max_depth == 0 {
-                        if start_board.who_moves == White {
-                            if (curr_score - MATE).abs() < 0.1 {
-                                // No need to search further we have a mate
-                                break;
-                            }
-                        } else if (curr_score + MATE).abs() < 0.1 {
-                            // No need to search further we have a mate
-                            break;
-                        }
-                    }
+            let single_move_deadline = deadline
+                .checked_div(movecount as u32)
+                .expect("Could not generate a single move!!!");
+            // println!("Single move deadline: {:?}", single_move_deadline);
+            let average_scoring_duration = self.avg_scoring_duration() * 15;
+            // println!(
+            //     "Expected minimum time for scoring: {:?}",
+            //     average_scoring_duration
+            // );
+            while let Some(curr_move) = moves.pop() {
+                //                    println!("{}  Testing move {:?}", prefix, curr_move);
+                let board_with_move = start_board.make_a_move(&curr_move);
+                unsafe {
+                    PSBCOUNT += 1;
                 }
-                moves.clear();
-                let sorting = match start_board.who_moves {
-                    White => 1.0,
-                    Black => -1.0,
-                };
-                let lastscore = scores.len() - 1;
-                scores.sort_unstable_by(|(_, s1), (_, s2)| {
-                    (sorting * s1).partial_cmp(&(s2 * sorting)).unwrap() // UNWRAP CAN FAIL HERE!
-                });
-                if (scores[lastscore].1.abs() - MATE).abs() < 0.1 {
-                    // End of game
-                    let best = scores.swap_remove(lastscore);
-                    ret = (if decide { Some(best.0) } else { None }, best.1);
+                let curr_score = if average_scoring_duration > single_move_deadline {
+                    self.timing_remembering_score(&board_with_move)
                 } else {
-                    let best = &scores[lastscore];
-                    let sameasbest = if (best.1 - scores[0].1).abs() < 0.001 {
-                        lastscore
-                    } else {
-                        let closetoup = scores.binary_search_by(|(_, s)| {
-                            (sorting * s)
-                                .partial_cmp(&((best.1 + 0.001) * sorting))
-                                .unwrap()
-                        });
-                        let closetodown = scores.binary_search_by(|(_, s)| {
-                            (sorting * s)
-                                .partial_cmp(&((best.1 - 0.001) * sorting))
-                                .unwrap()
-                        });
-                        let upidx = match closetoup {
-                            Ok(loc) => loc,
-                            Err(loc) => loc,
-                        };
-                        let downidx = match closetodown {
-                            Ok(loc) => loc,
-                            Err(loc) => loc,
-                        };
-                        upidx.max(downidx) - upidx.min(downidx)
-                    };
-
-                    let best = if sameasbest == 0 {
-                        scores.pop().unwrap()
-                    } else {
-                        let mut rng = thread_rng();
-                        let idx = rng.gen_range(0..sameasbest);
-                        scores.swap_remove(lastscore - idx)
-                    };
-                    ret = (Some(best.0), best.1)
+                    (self
+                        .best_move_for(&board_with_move, false, &single_move_deadline)
+                        .1
+                        * 10.0
+                        + sc)
+                        / 11.0
+                };
+                // println!("Acquired score: {}", curr_score);
+                scores.push((curr_move, curr_score));
+                if start_board.who_moves == White {
+                    if (curr_score - MATE).abs() < 0.1 {
+                        // No need to search further we have a mate
+                        break;
+                    }
+                } else if (curr_score + MATE).abs() < 0.1 {
+                    // No need to search further we have a mate
+                    break;
                 }
+            }
+            let sorting = match start_board.who_moves {
+                White => 1.0,
+                Black => -1.0,
+            };
+            let lastscore = scores.len() - 1;
+            scores.sort_unstable_by(|(_, s1), (_, s2)| {
+                (sorting * s1).partial_cmp(&(s2 * sorting)).unwrap() // UNWRAP CAN FAIL HERE!
+            });
+            if (scores[lastscore].1.abs() - MATE).abs() < 0.1 {
+                // End of game
+                let best = scores.swap_remove(lastscore);
+                ret = (if decide { Some(best.0) } else { None }, best.1);
+            } else {
+                let best = &scores[lastscore];
+                let sameasbest = if (best.1 - scores[0].1).abs() < 0.001 {
+                    lastscore
+                } else {
+                    let closetoup = scores.binary_search_by(|(_, s)| {
+                        (sorting * s)
+                            .partial_cmp(&((best.1 + 0.001) * sorting))
+                            .unwrap()
+                    });
+                    let closetodown = scores.binary_search_by(|(_, s)| {
+                        (sorting * s)
+                            .partial_cmp(&((best.1 - 0.001) * sorting))
+                            .unwrap()
+                    });
+                    let upidx = match closetoup {
+                        Ok(loc) => loc,
+                        Err(loc) => loc,
+                    };
+                    let downidx = match closetodown {
+                        Ok(loc) => loc,
+                        Err(loc) => loc,
+                    };
+                    upidx.max(downidx) - upidx.min(downidx)
+                };
+
+                let best = if sameasbest == 0 {
+                    scores.pop().unwrap()
+                } else {
+                    let mut rng = thread_rng();
+                    let idx = rng.gen_range(0..sameasbest);
+                    scores.swap_remove(lastscore - idx)
+                };
+                ret = (Some(best.0), best.1)
             }
             self.release_cached(moves, scores);
         }
