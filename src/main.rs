@@ -135,7 +135,7 @@ async fn play_a_game(
                         unsafe {
                             println!(
                                 "{} kNodes/sec",
-                                bitboard::PSBCOUNT as u128 / ourmovetime.as_millis()
+                                bitboard::PSBCOUNT as u128 / 1.max(ourmovetime.as_millis())
                             );
                         }
                         for _ in 0..5 {
