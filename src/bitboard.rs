@@ -26,7 +26,6 @@ extern crate rand;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::cmp::{max, min};
-use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -34,6 +33,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::bitboard::PieceKind::*;
+use crate::util::DurationAverage;
 use crate::PieceColor::*;
 
 use self::rand::{thread_rng, Rng};
@@ -821,18 +821,15 @@ impl PSBoard {
 
 pub struct Engine {
     vec_cache: Arc<Mutex<Vec<(Vec<PossibleMove>, Vec<(PossibleMove, f32)>)>>>,
-    scoring_timings: Arc<Mutex<VecDeque<Duration>>>,
+    scoring_timings: DurationAverage,
 }
 
 impl Engine {
     pub fn new() -> Engine {
         let sample_board = PSBoard::new();
-        let timings_base = (1..50)
-            .map(|_| Engine::timed_score(&sample_board).1)
-            .collect();
         Engine {
             vec_cache: Arc::new(Mutex::new(Vec::new())),
-            scoring_timings: Arc::new(Mutex::new(timings_base)),
+            scoring_timings: DurationAverage::new(50, || Engine::timed_score(&sample_board).1),
         }
     }
 
@@ -843,16 +840,8 @@ impl Engine {
 
     fn timing_remembering_score(&mut self, board: &PSBoard) -> f32 {
         let (ret, dur) = Engine::timed_score(board);
-        let mut timing_data = self.scoring_timings.borrow_mut().lock().unwrap();
-        timing_data.pop_front();
-        timing_data.push_back(dur);
+        self.scoring_timings.add(dur);
         ret
-    }
-
-    fn avg_scoring_duration(&self) -> Duration {
-        let timing_data = self.scoring_timings.lock().unwrap();
-        let all_duration: Duration = timing_data.iter().sum();
-        all_duration / timing_data.len() as u32
     }
 
     fn get_cached(&mut self) -> (Vec<PossibleMove>, Vec<(PossibleMove, f32)>) {
@@ -898,17 +887,17 @@ impl Engine {
                 .checked_div(movecount as u32)
                 .expect("Could not generate a single move!!!");
             // println!("Single move deadline: {:?}", single_move_deadline);
-            let average_scoring_duration = self.avg_scoring_duration() * 15;
-            // println!(
-            //     "Expected minimum time for scoring: {:?}",
-            //     average_scoring_duration
-            // );
             while let Some(curr_move) = moves.pop() {
                 //                    println!("{}  Testing move {:?}", prefix, curr_move);
                 let board_with_move = start_board.make_a_move(&curr_move);
                 unsafe {
                     PSBCOUNT += 1;
                 }
+                let average_scoring_duration = self.scoring_timings.calc_average() * 16;
+                // println!(
+                //     "Expected minimum time for scoring: {:?}",
+                //     average_scoring_duration
+                // );
                 let curr_score = if average_scoring_duration > single_move_deadline {
                     self.timing_remembering_score(&board_with_move)
                 } else {

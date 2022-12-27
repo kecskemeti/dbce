@@ -21,7 +21,6 @@
  *  (C) Copyright 2022, Gabor Kecskemeti
  */
 use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
 use std::error::Error;
 use std::io;
 use std::thread::sleep;
@@ -33,12 +32,14 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
 use crate::bitboard::{Engine, PSBoard, PieceColor};
+use crate::util::DurationAverage;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod bitboard;
 mod humaninteractions;
+mod util;
 
 async fn play_a_game(
     gameid: &str,
@@ -54,13 +55,15 @@ async fn play_a_game(
     let mut resp = lichess_api_call(getrq).await?.bytes_stream();
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
-    let mut ourmovetime = 3000;
+    let mut ourmovetime = Duration::from_secs(3);
     let mut currentboard = PSBoard::new();
     let mut opponent = None;
     let mut toignore = None;
     let mut impossiblemove = None;
     let mut engine = Engine::new();
+    let mut lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
     while let Some(bytes) = resp.next().await {
+        let start = Instant::now();
         if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
         {
             let gamestate = if gamestate["type"] == "gameFull" {
@@ -102,13 +105,20 @@ async fn play_a_game(
                         currentboard = currentboard.make_an_uci_move(amove);
                     }
                     // we make sure we still have at least 20 moves to do before we run out of time.
-                    let deadline_divisor = 20 * if currentboard.move_count == 0 { 10 } else { 1 };
+                    let deadline_divisor = 20
+                        * if currentboard.move_count == 0 {
+                            10 // Make the first move very quick to avoid aborts
+                        } else if currentboard.move_count < 10 {
+                            2 // Make the next few moves a bit quicker to allow more thought in late games
+                        } else {
+                            1 // Let's just allow as much thought now as we can go for
+                        };
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
                         let our_rem_time = if currentboard.who_moves == PieceColor::White {
                             white_rem_time
                         } else {
                             black_rem_time
-                        };
+                        } - lichesstiming.calc_average().as_millis() as u64;
 
                         let deadline =
                             Duration::from_millis(1.max(our_rem_time / deadline_divisor));
@@ -120,10 +130,13 @@ async fn play_a_game(
                         }
                         let ins = Instant::now();
                         let mymove = engine.best_move_for(&currentboard, true, &deadline);
-                        ourmovetime = ins.elapsed().as_millis().try_into().unwrap();
-                        println!("Move took {} ms", ourmovetime,);
+                        ourmovetime = ins.elapsed();
+                        println!("Move took {} ms", ourmovetime.as_millis());
                         unsafe {
-                            println!("{} kNodes/sec", bitboard::PSBCOUNT as u64 / ourmovetime);
+                            println!(
+                                "{} kNodes/sec",
+                                bitboard::PSBCOUNT as u128 / ourmovetime.as_millis()
+                            );
                         }
                         for _ in 0..5 {
                             if let Ok(res) = lichess_api_call(client.post(format!(
@@ -159,7 +172,8 @@ async fn play_a_game(
             // Chat is not supported
         } else {
             // Unparsable json
-            if (prevopponentmove.elapsed().as_millis() as i128 - ourmovetime as i128) > 300000 {
+            static FIVE_MINS: Duration = Duration::from_secs(300);
+            if (prevopponentmove.elapsed() - ourmovetime) > FIVE_MINS {
                 // we have not had a move from our opponent for over 5 mins.
                 // we will just cancel the game
                 let op = format!(
@@ -178,6 +192,7 @@ async fn play_a_game(
                 break;
             }
         }
+        lichesstiming.add(start.elapsed() - ourmovetime);
     }
     Ok(toignore)
 }
