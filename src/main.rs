@@ -173,7 +173,7 @@ async fn play_a_game(
         } else {
             // Unparsable json
             static FIVE_MINS: Duration = Duration::from_secs(300);
-            if (prevopponentmove.elapsed() - ourmovetime) > FIVE_MINS {
+            if (prevopponentmove.elapsed().saturating_sub(ourmovetime)) > FIVE_MINS {
                 // we have not had a move from our opponent for over 5 mins.
                 // we will just cancel the game
                 let op = format!(
