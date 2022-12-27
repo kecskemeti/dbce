@@ -192,7 +192,7 @@ async fn play_a_game(
                 break;
             }
         }
-        lichesstiming.add(start.elapsed() - ourmovetime);
+        lichesstiming.add(start.elapsed().saturating_sub(ourmovetime));
     }
     Ok(toignore)
 }
