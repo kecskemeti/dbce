@@ -31,14 +31,17 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
-use crate::bitboard::{Engine, PSBoard, PieceColor};
+use crate::bitboard::{Engine, PSBoard};
+use crate::board_rep::PieceColor;
 use crate::util::DurationAverage;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod bitboard;
+mod board_rep;
 mod humaninteractions;
+mod move_gen;
 mod util;
 
 async fn play_a_game(
@@ -114,11 +117,13 @@ async fn play_a_game(
                             1 // Let's just allow as much thought now as we can go for
                         };
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
-                        let our_rem_time = if currentboard.who_moves == PieceColor::White {
+                        let our_rem_time = (if currentboard.who_moves == PieceColor::White {
                             white_rem_time
                         } else {
                             black_rem_time
-                        } - lichesstiming.calc_average().as_millis() as u64;
+                        } as i128
+                            - lichesstiming.calc_average().as_millis() as i128)
+                            .max(1) as u64;
 
                         let deadline =
                             Duration::from_millis(1.max(our_rem_time / deadline_divisor));

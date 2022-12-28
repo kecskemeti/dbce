@@ -20,8 +20,32 @@
  *
  *  (C) Copyright 2022, Gabor Kecskemeti
  */
-use crate::bitboard::PieceColor::{Black, White};
-use crate::bitboard::{PSBoard, PieceKind, PieceState, PossibleMove};
+use crate::bitboard::PSBoard;
+use crate::board_rep::PieceColor::{Black, White};
+use crate::board_rep::{BaseMove, PieceKind, PieceState, PossibleMove};
+use std::fmt::{Display, Formatter};
+
+/*
+This allows a simple text display of the board on your console. Good for debugging purposes
+ */
+impl Display for PSBoard {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut retstr = String::new();
+        retstr
+            .push_str(format!("{:?} to move, move {}\n", self.who_moves, self.move_count).as_str());
+        for row in (0..8usize).rev() {
+            for col in 0..8usize {
+                retstr.push(if let Some(ps) = &self.board[row][col] {
+                    format!("{}", ps).pop().unwrap()
+                } else {
+                    '-'
+                });
+            }
+            retstr.push('\n');
+        }
+        write!(f, "{}", retstr)
+    }
+}
 
 impl PSBoard {
     #[allow(dead_code)]
@@ -203,18 +227,28 @@ impl PSBoard {
             if castletype == 2 {
                 //short
                 internal_move = Some(PossibleMove {
-                    from: (castlerow, 4),
-                    to: (castlerow, 6),
+                    themove: BaseMove {
+                        from: (castlerow, 4),
+                        to: (castlerow, 6),
+                    },
                     pawnpromotion: None,
-                    rook: Some(((castlerow, 7), (castlerow, 5))),
+                    rook: Some(BaseMove {
+                        from: (castlerow, 7),
+                        to: (castlerow, 5),
+                    }),
                 });
             } else {
                 //long
                 internal_move = Some(PossibleMove {
-                    from: (castlerow, 4),
-                    to: (castlerow, 2),
+                    themove: BaseMove {
+                        from: (castlerow, 4),
+                        to: (castlerow, 2),
+                    },
                     pawnpromotion: None,
-                    rook: Some(((castlerow, 0), (castlerow, 3))),
+                    rook: Some(BaseMove {
+                        from: (castlerow, 0),
+                        to: (castlerow, 3),
+                    }),
                 });
             }
         } else {
@@ -250,11 +284,11 @@ impl PSBoard {
                 if col.len() == 1 {
                     let target = (row.pop().unwrap(), col.pop().unwrap());
                     // regular move
-                    for amove in allmoves {
-                        let movingpiece = self.get_loc(&amove.from).as_ref().unwrap();
+                    for (amove, _) in allmoves {
+                        let movingpiece = self.get_loc(&amove.themove.from).as_ref().unwrap();
                         if movingpiece.kind == piecekind
-                            && amove.to.0 == target.0
-                            && amove.to.1 == target.1
+                            && amove.themove.to.0 == target.0
+                            && amove.themove.to.1 == target.1
                         {
                             if promotion {
                                 if let Some(knd) = promote_kind {
@@ -277,12 +311,12 @@ impl PSBoard {
                 } else {
                     let target = (row.pop().unwrap(), col.pop().unwrap());
                     let sourcecol = col.pop().unwrap();
-                    for amove in allmoves {
-                        let movingpiece = self.get_loc(&amove.from).as_ref().unwrap();
+                    for (amove, _) in allmoves {
+                        let movingpiece = self.get_loc(&amove.themove.from).as_ref().unwrap();
                         if movingpiece.kind == piecekind
-                            && amove.from.1 == sourcecol
-                            && amove.to.0 == target.0
-                            && amove.to.1 == target.1
+                            && amove.themove.from.1 == sourcecol
+                            && amove.themove.to.0 == target.0
+                            && amove.themove.to.1 == target.1
                         {
                             if promotion {
                                 if let Some(knd) = promote_kind {
@@ -306,12 +340,12 @@ impl PSBoard {
             } else if col.len() == 1 {
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 let sourcerow = row.pop().unwrap();
-                for amove in allmoves {
-                    let movingpiece = self.get_loc(&amove.from).as_ref().unwrap();
+                for (amove, _) in allmoves {
+                    let movingpiece = self.get_loc(&amove.themove.from).as_ref().unwrap();
                     if movingpiece.kind == piecekind
-                        && amove.from.0 == sourcerow
-                        && amove.to.0 == target.0
-                        && amove.to.1 == target.1
+                        && amove.themove.from.0 == sourcerow
+                        && amove.themove.to.0 == target.0
+                        && amove.themove.to.1 == target.1
                     {
                         internal_move = Some(amove);
                         break;
@@ -320,13 +354,13 @@ impl PSBoard {
             } else {
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 let source = (row.pop().unwrap(), col.pop().unwrap());
-                for amove in allmoves {
-                    let movingpiece = self.get_loc(&amove.from).as_ref().unwrap();
+                for (amove, _) in allmoves {
+                    let movingpiece = self.get_loc(&amove.themove.from).as_ref().unwrap();
                     if movingpiece.kind == piecekind
-                        && amove.from.0 == source.0
-                        && amove.from.1 == source.1
-                        && amove.to.0 == target.0
-                        && amove.to.1 == target.1
+                        && amove.themove.from.0 == source.0
+                        && amove.themove.from.1 == source.1
+                        && amove.themove.to.0 == target.0
+                        && amove.themove.to.1 == target.1
                     {
                         internal_move = Some(amove);
                         break;
