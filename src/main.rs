@@ -31,15 +31,17 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
-use crate::bitboard::{Engine, PSBoard};
 use crate::board_rep::PieceColor;
+use crate::engine::Engine;
 use crate::util::DurationAverage;
+use serde_json::Value;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod bitboard;
 mod board_rep;
+mod engine;
 mod humaninteractions;
 mod move_gen;
 mod util;
@@ -59,16 +61,15 @@ async fn play_a_game(
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
     let mut ourmovetime = Duration::from_secs(3);
-    let mut currentboard = PSBoard::new();
     let mut opponent = None;
     let mut toignore = None;
     let mut impossiblemove = None;
-    let mut engine = Engine::new();
+    let (mut engine, mut state) = Engine::new();
     let mut lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
-    while let Some(bytes) = resp.next().await {
+    while let Some(Ok(bytes)) = resp.next().await {
         let start = Instant::now();
-        if let Ok(gamestate) = json::parse(String::from_utf8(Vec::from(bytes?.as_ref()))?.as_str())
-        {
+        if let Ok(gamestate) = serde_json::from_slice(&bytes) {
+            let gamestate: Value = gamestate;
             let gamestate = if gamestate["type"] == "gameFull" {
                 assert_eq!(gamestate["variant"]["short"], "Std");
                 assert_eq!(gamestate["initialFen"], "startpos");
@@ -90,23 +91,22 @@ async fn play_a_game(
             };
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
-                    if let Some(impossiblemove) = impossiblemove {
+                    if impossiblemove.is_some() {
                         lichess_api_call(client.post(resignwithgameid)).await?;
                         panic!(
-                            "Could not make the following move {} on the board:\n {} \n {}",
-                            impossiblemove,
-                            currentboard,
-                            gamestate["moves"].dump()
+                            "Could not make the following move {impossiblemove:?} on the board:\n {} \n {}",
+                            state.get_board(),
+                            gamestate["moves"]
                         );
                     }
                     let white_rem_time = gamestate["wtime"].as_u64().unwrap();
                     let black_rem_time = gamestate["btime"].as_u64().unwrap();
-                    currentboard = PSBoard::new();
-                    let mut allmoves = gamestate["moves"].dump();
+                    let mut allmoves = gamestate["moves"].as_str().unwrap().to_owned();
                     allmoves.retain(|c| c != '"');
-                    for amove in allmoves.split_ascii_whitespace() {
-                        currentboard = currentboard.make_an_uci_move(amove);
+                    if let Some(lastmove) = allmoves.split_ascii_whitespace().last() {
+                        state.make_an_uci_move(lastmove);
                     }
+                    let currentboard = state.get_board();
                     // we make sure we still have at least 20 moves to do before we run out of time.
                     let deadline_divisor = 20
                         * if currentboard.move_count == 0 {
@@ -134,7 +134,7 @@ async fn play_a_game(
                             bitboard::PSBCOUNT = 0;
                         }
                         let ins = Instant::now();
-                        let mymove = engine.best_move_for(&currentboard, true, &deadline);
+                        let mymove = engine.best_move_for(&mut state, &deadline);
                         ourmovetime = ins.elapsed();
                         println!("Move took {} ms", ourmovetime.as_millis());
                         unsafe {
@@ -158,11 +158,11 @@ async fn play_a_game(
                             }
                             println!("Move was not possible to send, retry..");
                             sleep(Duration::from_millis(500));
-                            impossiblemove = Some(mymove.0.as_ref().unwrap().clone());
+                            impossiblemove = Some(*mymove.0.as_ref().unwrap());
                         }
                     } else {
                         // This was sent to us to inform about the opponent, we just remember when this
-                        // happened so we can decide what to do if the
+                        // happened so we can decide what to do if there is a parsing error
                         prevopponentmove = Instant::now();
                     }
                 } else {
@@ -184,7 +184,7 @@ async fn play_a_game(
                 let op = format!(
                     "https://lichess.org/api/bot/game/{}/{}",
                     gameid,
-                    if currentboard.half_moves_since_pawn == 0 {
+                    if state.get_board().half_moves_since_pawn == 0 {
                         toignore = opponent;
                         println!("Due to initial inactivity aborting the game, we will move on to another opponent");
                         "abort"
@@ -251,7 +251,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Searching for previous, unfinished games..");
         let currentlyplaying =
             lichess_api_call(client.get("https://lichess.org/api/account/playing")).await?;
-        let agame = &json::parse(currentlyplaying.text().await?.as_str())?["nowPlaying"][0];
+        let all_unfinished_games: Value =
+            serde_json::from_str(currentlyplaying.text().await?.as_str())?;
+        let agame = &all_unfinished_games["nowPlaying"][0];
         if !agame.is_null() {
             println!("Resuming game...");
             gameid = Some(String::from(agame["gameId"].as_str().unwrap()));
@@ -278,7 +280,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let mut bots = Vec::with_capacity(1000);
                 while let Some(bytes) = resp.next().await {
                     for abot_json in String::from_utf8(Vec::from(bytes?.as_ref()))?.lines() {
-                        if let Ok(abot) = json::parse(abot_json) {
+                        if let Ok(abot) = serde_json::from_str(abot_json) {
+                            let abot: Value = abot;
                             let botid = format!("{}", abot["id"]);
                             if !declining_bots.contains(botid.as_str()) {
                                 bots.push(botid);
@@ -286,7 +289,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 }
-                let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()) as usize);
+                let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()));
                 static CHALLENGE_TIME_CONTROLS: [(&str, &str); 11] = [
                     ("600", "10"),
                     ("600", "0"),
@@ -313,8 +316,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .post(format!("https://lichess.org/api/challenge/{}", target_bot))
                     .form(&req_form);
                 println!("Challenging bot: {}", target_bot);
-                let post_resp = lichess_api_call(post_req).await?;
-                println!("{:?}", post_resp);
+                lichess_api_call(post_req).await?;
             }
             println!("Waiting for events:");
             {
@@ -325,7 +327,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let startwait = Instant::now();
                 'outer: while let Some(bytes) = events.next().await {
                     for eventupdate in String::from_utf8(Vec::from(bytes?.as_ref()))?.lines() {
-                        if let Ok(event) = json::parse(eventupdate) {
+                        if let Ok(event) = serde_json::from_str(eventupdate) {
+                            let event: Value = event;
                             if event["type"] == "gameStart" {
                                 gameid = Some(String::from(event["game"]["id"].as_str().unwrap()));
                                 break 'outer;

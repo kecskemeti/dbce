@@ -1,6 +1,6 @@
 /*
  *  ========================================================================
- *  DBCE chess bot, timing information supporting move deadlines
+ *  DBCE chess bot, caching + timing information supporting move deadlines
  *  ========================================================================
  *
  *  This file is part of DBCE.
@@ -28,7 +28,7 @@ use std::time::Duration;
 
 pub struct DurationAverage {
     measurements: Arc<Mutex<VecDeque<Duration>>>,
-    len: u32,
+    pub len: u32,
     avg: Duration,
     valid_avg: bool,
 }
@@ -70,5 +70,31 @@ impl DurationAverage {
         let timing_data = timing_data.lock().unwrap();
         let all_duration: Duration = timing_data.iter().sum();
         all_duration / len
+    }
+}
+
+pub struct VecCache<T> {
+    cache: Arc<Mutex<Vec<Vec<T>>>>,
+}
+
+impl<T> VecCache<T> {
+    pub fn new() -> VecCache<T> {
+        VecCache {
+            cache: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn get(&mut self) -> Vec<T> {
+        self.cache
+            .borrow_mut()
+            .lock()
+            .unwrap()
+            .pop()
+            .unwrap_or_default()
+    }
+
+    pub fn release(&mut self, mut cached: Vec<T>) {
+        cached.clear();
+        self.cache.borrow_mut().lock().unwrap().push(cached)
     }
 }
