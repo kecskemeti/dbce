@@ -18,7 +18,7 @@
  *  You should have received a copy of the GNU General Public License along
  *  with DBCE.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  (C) Copyright 2022, Gabor Kecskemeti
+ *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -31,7 +31,8 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
-use crate::board_rep::PieceColor;
+use crate::baserules::board::PSBCOUNT;
+use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::engine::Engine;
 use crate::util::DurationAverage;
 use serde_json::Value;
@@ -39,11 +40,9 @@ use serde_json::Value;
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-mod bitboard;
-mod board_rep;
+mod baserules;
 mod engine;
-mod humaninteractions;
-mod move_gen;
+mod human_facing;
 mod util;
 
 async fn play_a_game(
@@ -76,10 +75,10 @@ async fn play_a_game(
                 let whiteplayer = gamestate["white"]["id"].as_str().unwrap();
                 let blackplayer = gamestate["black"]["id"].as_str().unwrap();
                 if whiteplayer.contains(botid) {
-                    ourcolor = Some(PieceColor::White);
+                    ourcolor = Some(White);
                     opponent = Some(String::from(blackplayer));
                 } else if blackplayer.contains(botid) {
-                    ourcolor = Some(PieceColor::Black);
+                    ourcolor = Some(Black);
                     opponent = Some(String::from(whiteplayer));
                 } else {
                     println!("WARNING: We are not even playing the game {} !", gameid);
@@ -117,7 +116,7 @@ async fn play_a_game(
                             1 // Let's just allow as much thought now as we can go for
                         };
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
-                        let our_rem_time = (if currentboard.who_moves == PieceColor::White {
+                        let our_rem_time = (if currentboard.who_moves == White {
                             white_rem_time
                         } else {
                             black_rem_time
@@ -131,7 +130,7 @@ async fn play_a_game(
                         println!("Set a deadline of: {:?}", deadline);
                         // it is our turn, let's see what we can come up with
                         unsafe {
-                            bitboard::PSBCOUNT = 0;
+                            PSBCOUNT = 0;
                         }
                         let ins = Instant::now();
                         let mymove = engine.best_move_for(&mut state, &deadline);
@@ -140,7 +139,7 @@ async fn play_a_game(
                         unsafe {
                             println!(
                                 "{} kNodes/sec",
-                                bitboard::PSBCOUNT as u128 / 1.max(ourmovetime.as_millis())
+                                PSBCOUNT as u128 / 1.max(ourmovetime.as_millis())
                             );
                         }
                         for _ in 0..5 {

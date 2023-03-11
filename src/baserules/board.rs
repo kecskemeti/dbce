@@ -1,6 +1,6 @@
 /*
  *  ========================================================================
- *  DBCE chess bot, core engine
+ *  DBCE chess bot, representation of a complete board and its possible future/past
  *  ========================================================================
  *
  *  This file is part of DBCE.
@@ -18,16 +18,16 @@
  *  You should have received a copy of the GNU General Public License along
  *  with DBCE.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  (C) Copyright 2022, Gabor Kecskemeti
+ *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
 extern crate rand;
 
+use crate::baserules::board_rep::{BoardPos, PieceState, PossibleMove};
+use crate::baserules::piece_color::PieceColor;
+use crate::baserules::piece_color::PieceColor::*;
+use crate::baserules::piece_kind::PieceKind::*;
 use ahash::AHashMap;
-
-use crate::board_rep::PieceColor::*;
-use crate::board_rep::PieceKind::*;
-use crate::board_rep::{BaseMove, BoardPos, PieceColor, PieceKind, PieceState, PossibleMove};
 
 pub static MATE: f32 = 1000.0;
 
@@ -35,23 +35,29 @@ pub static mut PSBCOUNT: u32 = 0;
 
 pub type RawBoard = [[Option<PieceState>; 8]; 8];
 
-/*
-The internal representation of the chessboard after a given move.
-*/
+/// The internal representation of the chessboard after a given move.
 #[derive(Clone)]
 pub struct PSBoard {
+    /// The actual board with the 8x8 squares
     pub board: RawBoard,
+    /// Identifies the color who should move next
     pub who_moves: PieceColor,
+    /// Tells what kind of castling is allowed
     pub castling: u8,
+    /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<BoardPos>,
+    /// The number of moves done so far
     pub move_count: u16,
+    /// allows draw condition check
     pub half_moves_since_pawn: u16,
+    /// The estimated score of this board
     pub score: f32,
+    /// If we have calculated a few positions ahead from this board, we store these positions here
     pub continuation: AHashMap<PossibleMove, PSBoard>,
 }
 
 impl PSBoard {
-    // Creates the standard starting position
+    /// Creates the standard starting position
     pub fn new() -> PSBoard {
         let mut raw = [[None; 8]; 8];
         for (row_index, row) in raw.iter_mut().enumerate() {
@@ -92,48 +98,10 @@ impl PSBoard {
         }
     }
 
-    // Allows moves to be translated from lichess to our internal representation
-    pub fn make_an_uci_move(&mut self, the_move: &str) -> PSBoard {
-        let len = the_move.len();
-        assert!(len < 6 && len > 3);
-        let raw_move = the_move.as_bytes();
-        let from = ((raw_move[1] - b'1') as i8, (raw_move[0] - b'a') as i8);
-        let to = ((raw_move[3] - b'1') as i8, (raw_move[2] - b'a') as i8);
-        self.make_a_move(&if len == 5 {
-            let promote_kind = PieceKind::from_char(raw_move[4] as char);
-            PossibleMove {
-                the_move: BaseMove { from, to },
-                pawn_promotion: Some(promote_kind),
-                rook: None,
-            }
-        } else {
-            let moving_piece = self.get_loc(from).as_ref().unwrap();
-            let rook_from = (from.0, if to.1 == 6 { 7 } else { 0 });
-            let rook_to = (from.0, if to.1 == 6 { 5 } else { 3 });
-            PossibleMove {
-                the_move: BaseMove { from, to },
-                pawn_promotion: None,
-                rook: if self.castling != 0
-                    && (to.0 == 0 || to.0 == 7)
-                    && from.1 == 4
-                    && (to.1 == 6 || to.1 == 2)
-                    && moving_piece.kind == King
-                {
-                    Some(BaseMove {
-                        from: rook_from,
-                        to: rook_to,
-                    })
-                } else {
-                    None
-                },
-            }
-        })
-    }
-
-    // Makes a move as per the internal representation
-    // Note that the move is not really checked for validity
-    // We will produce a completely new internal board representation as the result of the move
-    // This will allow further evaluation
+    /// Makes a move as per the internal representation
+    /// Note that the move is not really checked for validity
+    /// We will produce a completely new internal board representation as the result of the move
+    /// This will allow further evaluation. This is done unless we have the board already pre-calculated earlier
     pub fn make_a_move(&mut self, the_move: &PossibleMove) -> PSBoard {
         let the_new_board = self.continuation.remove(the_move);
         if let Some(precalculated_board) = the_new_board {
@@ -245,14 +213,13 @@ impl PSBoard {
         }
     }
 
-    // Determines what piece is at a particular location of the board
+    /// Determines what piece is at a particular location of the board
     #[inline]
     pub fn get_loc(&self, (row, col): BoardPos) -> &Option<PieceState> {
         &self.board[row as usize][col as usize]
     }
 
-    // A simple scoring mechanism which just counts up the pieces and pawns based on their usual values
-
+    /// A simple scoring mechanism which just counts up the pieces and pawns based on their usual values
     fn score_raw(board: &RawBoard) -> f32 {
         let (loc_score, white_king_found, black_king_found) = board
             .iter()

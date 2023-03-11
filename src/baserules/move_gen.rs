@@ -18,17 +18,19 @@
  *  You should have received a copy of the GNU General Public License along
  *  with DBCE.  If not, see <http://www.gnu.org/licenses/>.
  *
- *  (C) Copyright 2022, Gabor Kecskemeti
+ *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::bitboard::PSBoard;
-use crate::board_rep::PieceColor::*;
-use crate::board_rep::PieceKind::*;
-use crate::board_rep::{BaseMove, BoardPos, PieceKind, PossibleMove};
+use crate::baserules::board::PSBoard;
+use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
+use crate::baserules::piece_color::PieceColor::*;
+use crate::baserules::piece_kind::PieceKind;
+use crate::baserules::piece_kind::PieceKind::*;
 use std::cell::RefCell;
 use std::cmp::{max, min};
 
 impl PSBoard {
+    /// does a dirty side switch to allow seeing castling issues
     fn switch_sides(&self) -> PSBoard {
         let mut other_side = self.clone();
         other_side.who_moves = if self.who_moves == White {
@@ -39,7 +41,7 @@ impl PSBoard {
         other_side
     }
 
-    // Pieces can move and take till they hit another piece, assuming it is not the same colour
+    /// Pieces can move and take till they hit another piece, assuming it is not the same colour
     #[inline]
     fn piece_move_rule(&self, pos: BoardPos) -> bool {
         let target = self.get_loc(pos);
@@ -50,13 +52,13 @@ impl PSBoard {
         }
     }
 
-    // Pawns can only move to empty spaces, cannot take in forward movement
+    /// Pawns can only move to empty spaces, cannot take in forward movement
     #[inline]
     fn pawn_move_rule(&self, pos: BoardPos) -> bool {
         self.get_loc(pos).is_none()
     }
 
-    // Pawns can take in diagonals, even with en passant
+    /// Pawns can take in diagonals, even with en passant
     #[inline]
     fn pawn_take_rule(&self, pos: BoardPos) -> bool {
         let target = self.get_loc(pos);
@@ -74,8 +76,8 @@ impl PSBoard {
         }
     }
 
-    // Determines if a particular move is allowed based on the piece movement rule and the coordinate validity
-    // if so it produces a new move
+    /// Determines if a particular move is allowed based on the piece movement rule and the coordinate validity
+    /// if so it produces a new move
     #[inline]
     fn fil_map_core<I>(
         &self,
@@ -105,8 +107,8 @@ impl PSBoard {
         }
     }
 
-    // Generates a set of valid moves based on the coordinate adjustments passed in via the iterator
-    // Immediately deposits the moves in the output vector
+    /// Generates a set of valid moves based on the coordinate adjustments passed in via the iterator
+    /// Immediately deposits the moves in the output vector
     #[inline]
     fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a BoardPos>, J>(
         &self,
@@ -126,8 +128,8 @@ impl PSBoard {
         );
     }
 
-    // This does the same as gen_moves_from_dirs, but stops at the first occasion
-    // when moves are no longer possible
+    /// This does the same as gen_moves_from_dirs, but stops at the first occasion
+    /// when moves are no longer possible
     #[inline]
     fn gen_moves_from_dirs_with_stop<'a, I, J>(
         &self,
@@ -148,7 +150,7 @@ impl PSBoard {
         );
     }
 
-    // This generates moves based on directional vectors (useful for rooks, bishops and queens)
+    /// This generates moves based on directional vectors (useful for rooks, bishops and queens)
     fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a BoardPos>>(
         &self,
         row: i8,
@@ -243,7 +245,7 @@ impl PSBoard {
         }
     }
 
-    // This figures out all the possible moves on the particular board
+    /// This figures out all the possible moves on the particular board
     pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
         if !self.continuation.is_empty() {
             return self.continuation.keys().for_each(|k| the_moves.push(*k));
@@ -281,6 +283,7 @@ impl PSBoard {
             .for_each(|(ri, ci, call)| call(self, ri, ci, the_moves));
     }
 
+    /// Normal king moves
     fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
         self.gen_moves_from_dirs(
             row,
@@ -291,6 +294,7 @@ impl PSBoard {
         );
     }
 
+    /// King moves when we are castling
     fn gen_king_moves_with_castling(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
         self.gen_king_moves(row, col, the_moves);
         // Castling:
@@ -353,6 +357,7 @@ impl PSBoard {
         }
     }
 
+    /// Pawn moves, takes and promotions
     fn gen_pawn_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
         // normal pawn move
         let prelen = the_moves.len();
@@ -404,6 +409,7 @@ impl PSBoard {
         }
     }
 
+    /// The knight moves are not directional, so we handle them specifically
     fn gen_knight_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
         self.gen_moves_from_dirs(
             row,
@@ -414,6 +420,7 @@ impl PSBoard {
         );
     }
 
+    /// All other pieces have simple directional movement, so we just use their directions to generate their possible moves
     fn gen_vec_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
         self.gen_moves_from_vecs(
             row,
