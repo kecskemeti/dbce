@@ -27,6 +27,8 @@ use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
 use std::fmt::{Debug, Display, Formatter};
 
+pub type BoardPos = (i8, i8);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Enum)]
 pub enum PieceColor {
     Black,
@@ -34,39 +36,39 @@ pub enum PieceColor {
 }
 
 lazy_static! {
-    static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, [(i8, i8); 1]> = enum_map! {
-        PieceColor::Black => [(-1, 0)],
-        PieceColor::White => [(1, 0)]
+    static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
+        Black => vec![(-1, 0)],
+        White => vec![(1, 0)]
     };
-    static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, [(i8, i8); 2]> = enum_map! {
-        PieceColor::Black => [(-1, 0), (-2, 0)],
-        PieceColor::White => [(1, 0), (2, 0)]
+    static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
+        Black => vec![(-1, 0), (-2, 0)],
+        White => vec![(1, 0), (2, 0)]
     };
-    static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, [(i8, i8); 2]> = enum_map! {
-        PieceColor::Black => [(-1, 1), (-1, -1)],
-        PieceColor::White => [(1, 1), (1, -1)]
+    static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
+        Black => vec![(-1, 1), (-1, -1)],
+        White => vec![(1, 1), (1, -1)]
     };
     static ref PAWN_PROMOTION_MAP: EnumMap<PieceColor, i8> = enum_map! {
-        PieceColor::Black => 0,
-        PieceColor::White => 7
+        Black => 0,
+        White => 7
     };
     static ref PIECE_ROWS: EnumMap<PieceColor, i8> = enum_map! {
-        PieceColor::Black => 7,
-        PieceColor::White => 0
+        Black => 7,
+        White => 0
     };
 }
 
 impl PieceColor {
     #[inline]
-    pub fn pawn_single_step(self) -> &'static [(i8, i8); 1] {
+    pub fn pawn_single_step(self) -> &'static Vec<BoardPos> {
         &PAWN_SINGLE_STEPS[self]
     }
     #[inline]
-    pub fn pawn_double_step(self) -> &'static [(i8, i8); 2] {
+    pub fn pawn_double_step(self) -> &'static Vec<BoardPos> {
         &PAWN_DOUBLE_STEPS[self]
     }
     #[inline]
-    pub fn pawn_takes_step(self) -> &'static [(i8, i8); 2] {
+    pub fn pawn_takes_step(self) -> &'static Vec<BoardPos> {
         &PAWN_TAKES_STEPS[self]
     }
     #[inline]
@@ -79,7 +81,7 @@ impl PieceColor {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, Enum)]
 pub enum PieceKind {
     King,
     Queen,
@@ -87,6 +89,35 @@ pub enum PieceKind {
     Bishop,
     Knight,
     Pawn,
+}
+
+lazy_static! {
+    /// Lists all possible moves for the pieces or all possible directions if pieces can slide across the board
+    static ref PIECEMOVES: EnumMap<PieceKind, Vec<BoardPos>> = enum_map! {
+        Bishop => vec![(-1, -1), (1, 1), (-1, 1), (1, -1)],
+        Rook => vec![(-1, 0), (1, 0), (0, 1), (0, -1)],
+        Knight => vec![
+            (-1, -2),
+            (-1, 2),
+            (-2, -1),
+            (-2, 1),
+            (1, -2),
+            (1, 2),
+            (2, -1),
+            (2, 1),
+        ],
+        King | Queen => vec![
+        (-1, -1),
+        (1, 1),
+        (-1, 1),
+        (1, -1),
+        (-1, 0),
+        (1, 0),
+        (0, 1),
+        (0, -1),
+        ],
+        Pawn => panic!("Pawns cannot be queried here"),
+    };
 }
 
 impl PieceKind {
@@ -112,6 +143,9 @@ impl PieceKind {
             Pawn => 'p',
         }
     }
+    pub fn vec_moves(self) -> &'static Vec<BoardPos> {
+        &PIECEMOVES[self]
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -134,8 +168,8 @@ impl Display for PieceState {
 
 #[derive(Eq, Hash, Copy, Clone, PartialEq)]
 pub struct BaseMove {
-    pub from: (i8, i8),
-    pub to: (i8, i8),
+    pub from: BoardPos,
+    pub to: BoardPos,
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]

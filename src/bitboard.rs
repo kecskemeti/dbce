@@ -27,7 +27,7 @@ use ahash::AHashMap;
 
 use crate::board_rep::PieceColor::*;
 use crate::board_rep::PieceKind::*;
-use crate::board_rep::{BaseMove, PieceColor, PieceKind, PieceState, PossibleMove};
+use crate::board_rep::{BaseMove, BoardPos, PieceColor, PieceKind, PieceState, PossibleMove};
 
 pub static MATE: f32 = 1000.0;
 
@@ -43,7 +43,7 @@ pub struct PSBoard {
     pub board: RawBoard,
     pub who_moves: PieceColor,
     pub castling: u8,
-    pub ep: Option<(i8, i8)>,
+    pub ep: Option<BoardPos>,
     pub move_count: u16,
     pub half_moves_since_pawn: u16,
     pub score: f32,
@@ -247,7 +247,7 @@ impl PSBoard {
 
     // Determines what piece is at a particular location of the board
     #[inline]
-    pub fn get_loc(&self, (row, col): (i8, i8)) -> &Option<PieceState> {
+    pub fn get_loc(&self, (row, col): BoardPos) -> &Option<PieceState> {
         &self.board[row as usize][col as usize]
     }
 

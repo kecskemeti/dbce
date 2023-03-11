@@ -24,7 +24,7 @@
 use crate::bitboard::PSBoard;
 use crate::board_rep::PieceColor::*;
 use crate::board_rep::PieceKind::*;
-use crate::board_rep::{BaseMove, PieceKind, PossibleMove};
+use crate::board_rep::{BaseMove, BoardPos, PieceKind, PossibleMove};
 use std::cell::RefCell;
 use std::cmp::{max, min};
 
@@ -41,7 +41,7 @@ impl PSBoard {
 
     // Pieces can move and take till they hit another piece, assuming it is not the same colour
     #[inline]
-    fn piece_move_rule(&self, pos: (i8, i8)) -> bool {
+    fn piece_move_rule(&self, pos: BoardPos) -> bool {
         let target = self.get_loc(pos);
         if let Some(other_piece) = target.as_ref() {
             other_piece.color != self.who_moves
@@ -52,13 +52,13 @@ impl PSBoard {
 
     // Pawns can only move to empty spaces, cannot take in forward movement
     #[inline]
-    fn pawn_move_rule(&self, pos: (i8, i8)) -> bool {
+    fn pawn_move_rule(&self, pos: BoardPos) -> bool {
         self.get_loc(pos).is_none()
     }
 
     // Pawns can take in diagonals, even with en passant
     #[inline]
-    fn pawn_take_rule(&self, pos: (i8, i8)) -> bool {
+    fn pawn_take_rule(&self, pos: BoardPos) -> bool {
         let target = self.get_loc(pos);
         if let Some(other_piece) = target.as_ref() {
             // regular move
@@ -81,11 +81,11 @@ impl PSBoard {
         &self,
         row: i8,
         col: i8,
-        loc: (i8, i8),
+        loc: BoardPos,
         on_board_rule: &I,
     ) -> Option<PossibleMove>
     where
-        I: Fn(&Self, (i8, i8)) -> bool,
+        I: Fn(&Self, BoardPos) -> bool,
     {
         if loc.0 & 7i8 == loc.0 && loc.1 & 7i8 == loc.1 &&
             // Move is on the board
@@ -108,7 +108,7 @@ impl PSBoard {
     // Generates a set of valid moves based on the coordinate adjustments passed in via the iterator
     // Immediately deposits the moves in the output vector
     #[inline]
-    fn gen_moves_from_dirs<'a, I, J>(
+    fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a BoardPos>, J>(
         &self,
         row: i8,
         col: i8,
@@ -116,11 +116,11 @@ impl PSBoard {
         possible_moves: I,
         out: &mut Vec<PossibleMove>,
     ) where
-        I: Iterator<Item = &'a (i8, i8)>,
-        J: Fn(&Self, (i8, i8)) -> bool,
+        J: Fn(&Self, BoardPos) -> bool,
     {
         out.extend(
             possible_moves
+                .into_iter()
                 .map(|m| (m.0 + row, m.1 + col))
                 .filter_map(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
@@ -137,23 +137,27 @@ impl PSBoard {
         possible_moves: I,
         out: &mut Vec<PossibleMove>,
     ) where
-        I: Iterator<Item = &'a (i8, i8)>,
-        J: Fn(&Self, (i8, i8)) -> bool,
+        I: IntoIterator<Item = &'a BoardPos>,
+        J: Fn(&Self, BoardPos) -> bool,
     {
         out.extend(
             possible_moves
+                .into_iter()
                 .map(|m| (m.0 + row, m.1 + col))
                 .map_while(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
 
     // This generates moves based on directional vectors (useful for rooks, bishops and queens)
-    fn gen_moves_from_vecs<'a, I>(&self, row: i8, col: i8, vecs: I, out: &mut Vec<PossibleMove>)
-    where
-        I: Iterator<Item = &'a (i8, i8)>,
-    {
+    fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a BoardPos>>(
+        &self,
+        row: i8,
+        col: i8,
+        vecs: I,
+        out: &mut Vec<PossibleMove>,
+    ) {
         for (x, y) in vecs {
-            static DIRECTIONAL_MOVES: [[(i8, i8); 7]; 9] = [
+            static DIRECTIONAL_MOVES: [[BoardPos; 7]; 9] = [
                 // this array is laid out so it is easy to map into it with the below formula using just the input coords
                 [
                     (-1, -1),
@@ -267,9 +271,7 @@ impl PSBoard {
                                 King => king_move_call,
                                 Pawn => PSBoard::gen_pawn_moves,
                                 Knight => PSBoard::gen_knight_moves,
-                                Rook => PSBoard::gen_rook_moves,
-                                Bishop => PSBoard::gen_bishop_moves,
-                                Queen => PSBoard::gen_queen_moves,
+                                Rook | Bishop | Queen => PSBoard::gen_vec_moves,
                             },
                         ));
                     }
@@ -280,21 +282,11 @@ impl PSBoard {
     }
 
     fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        static POSSIBLE_KING_MOVES: [(i8, i8); 8] = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
         self.gen_moves_from_dirs(
             row,
             col,
             &PSBoard::piece_move_rule,
-            POSSIBLE_KING_MOVES.iter(),
+            King.vec_moves(),
             the_moves,
         );
     }
@@ -366,9 +358,9 @@ impl PSBoard {
         let prelen = the_moves.len();
         let pawn_move_now = if row == 1 || row == 6 {
             // two step pawn move at the beginning
-            self.who_moves.pawn_double_step().iter()
+            self.who_moves.pawn_double_step()
         } else {
-            self.who_moves.pawn_single_step().iter()
+            self.who_moves.pawn_single_step()
         };
         self.gen_moves_from_dirs_with_stop(
             row,
@@ -383,7 +375,7 @@ impl PSBoard {
             row,
             col,
             &PSBoard::pawn_take_rule,
-            self.who_moves.pawn_takes_step().iter(),
+            self.who_moves.pawn_takes_step(),
             the_moves,
         );
         if the_moves.len() > prelen {
@@ -413,46 +405,21 @@ impl PSBoard {
     }
 
     fn gen_knight_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        static POSSIBLE_KNIGHT_MOVES: [(i8, i8); 8] = [
-            (-1, -2),
-            (-1, 2),
-            (-2, -1),
-            (-2, 1),
-            (1, -2),
-            (1, 2),
-            (2, -1),
-            (2, 1),
-        ];
         self.gen_moves_from_dirs(
             row,
             col,
             &PSBoard::piece_move_rule,
-            POSSIBLE_KNIGHT_MOVES.iter(),
+            Knight.vec_moves(),
             the_moves,
         );
     }
 
-    fn gen_rook_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        static POSSIBLE_ROOK_DIRECTIONS: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, 1), (0, -1)];
-        self.gen_moves_from_vecs(row, col, POSSIBLE_ROOK_DIRECTIONS.iter(), the_moves);
-    }
-
-    fn gen_bishop_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        static POSSIBLE_BISHOP_DIRECTIONS: [(i8, i8); 4] = [(-1, -1), (1, 1), (-1, 1), (1, -1)];
-        self.gen_moves_from_vecs(row, col, POSSIBLE_BISHOP_DIRECTIONS.iter(), the_moves);
-    }
-
-    fn gen_queen_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        static POSSIBLE_QUEEN_DIRECTIONS: [(i8, i8); 8] = [
-            (-1, -1),
-            (1, 1),
-            (-1, 1),
-            (1, -1),
-            (-1, 0),
-            (1, 0),
-            (0, 1),
-            (0, -1),
-        ];
-        self.gen_moves_from_vecs(row, col, POSSIBLE_QUEEN_DIRECTIONS.iter(), the_moves);
+    fn gen_vec_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+        self.gen_moves_from_vecs(
+            row,
+            col,
+            self.get_loc((row, col)).unwrap().kind.vec_moves(),
+            the_moves,
+        );
     }
 }
