@@ -31,31 +31,23 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
-use crate::baserules::board::PSBCOUNT;
-use crate::baserules::piece_color::PieceColor::{Black, White};
-use crate::engine::Engine;
-use crate::util::DurationAverage;
+use dbce::baserules::board::PSBCOUNT;
+use dbce::baserules::piece_color::PieceColor::{Black, White};
+use dbce::engine::Engine;
+use dbce::util::DurationAverage;
 use serde_json::Value;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-mod baserules;
-mod engine;
-mod human_facing;
-mod util;
 
 async fn play_a_game(
     gameid: &str,
     botid: &str,
     client: &Client,
 ) -> Result<Option<String>, Box<dyn Error>> {
-    let resignwithgameid = format!("https://lichess.org/api/bot/game/{}/resign/", gameid);
-    let movewithgameid = format!("https://lichess.org/api/bot/game/{}/move/", gameid);
-    let getrq = client.get(format!(
-        "https://lichess.org/api/bot/game/stream/{}",
-        gameid
-    ));
+    let resignwithgameid = format!("https://lichess.org/api/bot/game/{gameid}/resign/");
+    let movewithgameid = format!("https://lichess.org/api/bot/game/{gameid}/move/");
+    let getrq = client.get(format!("https://lichess.org/api/bot/game/stream/{gameid}"));
     let mut resp = lichess_api_call(getrq).await?.bytes_stream();
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
@@ -81,7 +73,7 @@ async fn play_a_game(
                     ourcolor = Some(Black);
                     opponent = Some(String::from(whiteplayer));
                 } else {
-                    println!("WARNING: We are not even playing the game {} !", gameid);
+                    println!("WARNING: We are not even playing the game {gameid}!");
                     break;
                 }
                 &gamestate["state"]
@@ -116,18 +108,17 @@ async fn play_a_game(
                             1 // Let's just allow as much thought now as we can go for
                         };
                     if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
-                        let our_rem_time = (if currentboard.who_moves == White {
+                        let our_rem_time = (i128::from(if currentboard.who_moves == White {
                             white_rem_time
                         } else {
                             black_rem_time
-                        } as i128
-                            - lichesstiming.calc_average().as_millis() as i128)
+                        }) - lichesstiming.calc_average().as_millis() as i128)
                             .max(1) as u64;
 
                         let deadline =
                             Duration::from_millis(1.max(our_rem_time / deadline_divisor));
 
-                        println!("Set a deadline of: {:?}", deadline);
+                        println!("Set a deadline of: {deadline:?}");
                         // it is our turn, let's see what we can come up with
                         unsafe {
                             PSBCOUNT = 0;
@@ -139,7 +130,7 @@ async fn play_a_game(
                         unsafe {
                             println!(
                                 "{} kNodes/sec",
-                                PSBCOUNT as u128 / 1.max(ourmovetime.as_millis())
+                                u128::from(PSBCOUNT) / 1.max(ourmovetime.as_millis())
                             );
                         }
                         for _ in 0..5 {
@@ -240,7 +231,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut headers = HeaderMap::new();
     headers.insert(
         "Authorization",
-        format!("Bearer {}", authtoken).parse().unwrap(),
+        format!("Bearer {authtoken}").parse().unwrap(),
     );
     let client = Client::builder().default_headers(headers).build().unwrap();
     let mut declining_bots = HashSet::new();
@@ -253,16 +244,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let all_unfinished_games: Value =
             serde_json::from_str(currentlyplaying.text().await?.as_str())?;
         let agame = &all_unfinished_games["nowPlaying"][0];
-        if !agame.is_null() {
+        if agame.is_null() {
+            println!("\tdid not find any.");
+        } else {
             println!("Resuming game...");
             gameid = Some(String::from(agame["gameId"].as_str().unwrap()));
-        } else {
-            println!("\tdid not find any.")
         }
     }
     loop {
         if let Some(gameid_str) = &gameid {
-            println!("Starting to play game {}", gameid_str);
+            println!("Starting to play game {gameid_str}");
             let result = play_a_game(gameid_str.as_str(), botid, &client).await?;
             // If we get a non-responsive opponent we ignore it from now on
             if let Some(problematicopponent) = result {
@@ -312,9 +303,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     ("variant", "standard"),
                 ]);
                 let post_req = client
-                    .post(format!("https://lichess.org/api/challenge/{}", target_bot))
+                    .post(format!("https://lichess.org/api/challenge/{target_bot}"))
                     .form(&req_form);
-                println!("Challenging bot: {}", target_bot);
+                println!("Challenging bot: {target_bot}");
                 lichess_api_call(post_req).await?;
             }
             println!("Waiting for events:");
@@ -349,7 +340,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 ));
                                 if let Some(reason) = reason {
-                                    println!("Declining challenge because: {}", reason);
+                                    println!("Declining challenge because: {reason}");
                                     let reasonmap = HashMap::from([("reason", reason)]);
                                     postreq = postreq.form(&reasonmap);
                                 } else {

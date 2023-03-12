@@ -128,7 +128,7 @@ impl PSBoard {
         );
     }
 
-    /// This does the same as gen_moves_from_dirs, but stops at the first occasion
+    /// This does the same as `gen_moves_from_dirs`, but stops at the first occasion
     /// when moves are no longer possible
     #[inline]
     fn gen_moves_from_dirs_with_stop<'a, I, J>(

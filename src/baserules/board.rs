@@ -56,8 +56,16 @@ pub struct PSBoard {
     pub continuation: AHashMap<PossibleMove, PSBoard>,
 }
 
+impl Default for PSBoard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PSBoard {
     /// Creates the standard starting position
+    /// # Panics
+    /// If we somehow end up generating a bigger than 8x8 board
     pub fn new() -> PSBoard {
         let mut raw = [[None; 8]; 8];
         for (row_index, row) in raw.iter_mut().enumerate() {
@@ -102,6 +110,8 @@ impl PSBoard {
     /// Note that the move is not really checked for validity
     /// We will produce a completely new internal board representation as the result of the move
     /// This will allow further evaluation. This is done unless we have the board already pre-calculated earlier
+    /// # Panics
+    /// If there is a request to make a move for a piece that does not exist on the board
     pub fn make_a_move(&mut self, the_move: &PossibleMove) -> PSBoard {
         let the_new_board = self.continuation.remove(the_move);
         if let Some(precalculated_board) = the_new_board {
@@ -112,11 +122,8 @@ impl PSBoard {
             let mut raw_board = self.board;
             let previous_piece = self.get_loc(the_move.the_move.to);
             {
-                let current_piece = raw_board[the_move.the_move.from.0 as usize]
-                    [the_move.the_move.from.1 as usize]
-                    .as_ref()
-                    .unwrap();
                 if let Some(ep) = &self.ep {
+                    let current_piece = &self.get_loc(the_move.the_move.from).unwrap();
                     if current_piece.kind == Pawn
                         && ep.0 == the_move.the_move.to.0
                         && ep.1 == the_move.the_move.to.1
@@ -207,20 +214,40 @@ impl PSBoard {
                     }
                 },
                 half_moves_since_pawn: self.half_moves_since_pawn + 1,
-                move_count: self.move_count + if current_piece.color == Black { 1 } else { 0 },
+                move_count: self.move_count + u16::from(current_piece.color == Black),
                 continuation: AHashMap::new(),
             }
         }
     }
 
     /// Determines what piece is at a particular location of the board
+    ///
+    /// # Example use:
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::board_rep::PieceState;
+    /// use dbce::baserules::piece_color::PieceColor::White;
+    /// use dbce::baserules::piece_kind::PieceKind::King;
+    ///
+    /// let board = PSBoard::new();
+    /// let king = board.get_loc((0,4));
+    /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
+    /// ```
     #[inline]
     pub fn get_loc(&self, (row, col): BoardPos) -> &Option<PieceState> {
         &self.board[row as usize][col as usize]
     }
 
     /// A simple scoring mechanism which just counts up the pieces and pawns based on their usual values
-    fn score_raw(board: &RawBoard) -> f32 {
+    ///
+    /// # Example use
+    /// Each `PSBoard` has its score automatically calculated with this method during creation, so this is an indirect demonstration.
+    /// ```
+    /// use dbce::baserules::board::{MATE, PSBoard};
+    /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5");
+    /// assert_eq!(MATE, scholars_mate.score);
+    /// ```
+    pub(crate) fn score_raw(board: &RawBoard) -> f32 {
         let (loc_score, white_king_found, black_king_found) = board
             .iter()
             .flatten()

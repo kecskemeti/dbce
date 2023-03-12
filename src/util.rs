@@ -50,6 +50,8 @@ impl DurationAverage {
         }
     }
 
+    /// # Panics
+    /// If the measurement mutex cannot be acquired  
     pub fn add(&mut self, new: Duration) {
         let mut timing_data = self.measurements.borrow_mut().lock().unwrap();
         timing_data.pop_front();
@@ -77,6 +79,12 @@ pub struct VecCache<T> {
     cache: Arc<Mutex<Vec<Vec<T>>>>,
 }
 
+impl<T> Default for VecCache<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> VecCache<T> {
     pub fn new() -> VecCache<T> {
         VecCache {
@@ -84,6 +92,8 @@ impl<T> VecCache<T> {
         }
     }
 
+    /// # Panics
+    /// If the backing cache's mutex cannot be acquired
     pub fn get(&mut self) -> Vec<T> {
         self.cache
             .borrow_mut()
@@ -93,6 +103,8 @@ impl<T> VecCache<T> {
             .unwrap_or_default()
     }
 
+    /// # Panics
+    /// If the backing cache's mutex cannot be acquired
     pub fn release(&mut self, mut cached: Vec<T>) {
         cached.clear();
         self.cache.borrow_mut().lock().unwrap().push(cached)

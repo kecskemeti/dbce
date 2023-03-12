@@ -27,9 +27,9 @@ use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
 
 /// Reads short algebraic notation and translates it to our internal structures
-/// https://en.wikipedia.org/wiki/Algebraic_notation_(chess)
+/// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
 #[allow(dead_code)]
-pub fn make_a_human_move(board: &mut PSBoard, the_move: String) -> Option<PSBoard> {
+pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard> {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
     let mut col = Vec::new();
@@ -87,6 +87,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: String) -> Option<PSBoar
                     '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => {
                         row.push((consecutive as u8 - b'1') as i8)
                     }
+
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
                         if promotion {
@@ -193,7 +194,9 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: String) -> Option<PSBoar
 }
 
 /// Allows moves to be translated from lichess to our internal representation
-/// See also: https://en.wikipedia.org/wiki/Universal_Chess_Interface
+/// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
+/// # Panics
+/// when the received uci move is out of the usual uci move format's length constraints
 pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> PSBoard {
     let len = the_move.len();
     assert!(len < 6 && len > 3);

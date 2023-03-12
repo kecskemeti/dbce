@@ -32,7 +32,7 @@ use std::fmt::{Debug, Display, Formatter};
 pub type BoardPos = (i8, i8);
 
 /// Represents the pieces that can be placed on the board
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PieceState {
     pub kind: PieceKind,
     pub color: PieceColor,
@@ -72,7 +72,7 @@ pub struct PossibleMove {
 
 impl Display for PossibleMove {
     /// Produces moves in uci notation
-    /// See also: https://en.wikipedia.org/wiki/Universal_Chess_Interface
+    /// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut ret = String::with_capacity(5);
         ret.push((self.the_move.from.1 as u8 + b'a') as char);

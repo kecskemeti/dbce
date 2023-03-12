@@ -99,6 +99,8 @@ lazy_static! {
 
 impl PieceKind {
     /// Allows pieces to be determined based on uci and classical chess notation
+    /// # Panics
+    /// When we receive a character to translate that we cannot translate to the usual notation
     pub fn from_char(piece: char) -> PieceKind {
         let idx: usize = (piece.to_ascii_lowercase() as i8 - b'b' as i8)
             .try_into()

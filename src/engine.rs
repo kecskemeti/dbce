@@ -129,19 +129,18 @@ impl Engine {
                     // No need to search further we have a mate
                     ret = (Some(curr_move), board_with_move.score);
                     break;
-                } else {
-                    let average_scoring_duration = self.scoring_timings.calc_average() * 16;
-                    if average_scoring_duration < single_move_deadline {
-                        board_with_move.score = (self
-                            .best_move_for_internal(&mut board_with_move, &single_move_deadline)
-                            .1
-                            * 10.0
-                            + start_board.score
-                            + board_with_move.score)
-                            / 12.0;
-                    };
-                    start_board.continuation.insert(curr_move, board_with_move);
                 }
+                let average_scoring_duration = self.scoring_timings.calc_average() * 16;
+                if average_scoring_duration < single_move_deadline {
+                    board_with_move.score = (self
+                        .best_move_for_internal(&mut board_with_move, &single_move_deadline)
+                        .1
+                        * 10.0
+                        + start_board.score
+                        + board_with_move.score)
+                        / 12.0;
+                };
+                start_board.continuation.insert(curr_move, board_with_move);
             }
             if ret.0.is_none() {
                 // we don't have a mate
