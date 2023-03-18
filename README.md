@@ -1,4 +1,4 @@
-![GitHub](https://img.shields.io/github/license/kecskemeti/dbce) ![GitHub top language](https://img.shields.io/github/languages/top/kecskemeti/dbce)  ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/rust.yml) ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/test.yml)
+![GitHub](https://img.shields.io/github/license/kecskemeti/dbce) ![GitHub top language](https://img.shields.io/github/languages/top/kecskemeti/dbce)  ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/rust.yml) ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/test.yml?label=tests)
 
 # dbce
 
