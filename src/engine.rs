@@ -110,6 +110,7 @@ impl Engine {
             White => 1.0,
             Black => -1.0,
         };
+
         if (start_board.score.abs() - MATE).abs() > 0.1 {
             let mut moves = self.move_cache.get();
             assert_eq!(0, moves.len());
@@ -120,29 +121,13 @@ impl Engine {
                 .checked_div(movecount as u32)
                 .expect("Could not generate a single move!!!");
             // println!("Single move deadline: {:?}", single_move_deadline);
-            while let Some(curr_move) = moves.pop() {
-                let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
-                unsafe {
-                    PSBCOUNT += 1;
-                }
-                if (board_with_move.score - mate_multiplier * MATE).abs() < 0.1 {
-                    // No need to search further we have a mate
-                    ret = (Some(curr_move), board_with_move.score);
-                    break;
-                }
-                let average_scoring_duration = self.scoring_timings.calc_average() * 16;
-                if average_scoring_duration < single_move_deadline {
-                    board_with_move.score = (self
-                        .best_move_for_internal(&mut board_with_move, &single_move_deadline)
-                        .1
-                        * 10.0
-                        + start_board.score
-                        + board_with_move.score)
-                        / 12.0;
-                };
-                start_board.continuation.insert(curr_move, board_with_move);
-            }
-            if ret.0.is_none() {
+
+            let possible_mate =
+                self.countdown(moves, start_board, mate_multiplier, single_move_deadline);
+
+            if let Some(actual_mate) = possible_mate {
+                ret = actual_mate;
+            } else {
                 // we don't have a mate
                 let best_potential_board = start_board.continuation.values().max_by(|b1, b2| {
                     (mate_multiplier * b1.score)
@@ -167,8 +152,41 @@ impl Engine {
                         .unwrap();
                 }
             }
-            self.move_cache.release(moves);
         }
         ret
+    }
+
+    pub fn countdown(
+        &mut self,
+        mut moves: Vec<PossibleMove>,
+        start_board: &mut PSBoard,
+        mate_multiplier: f32,
+        single_move_deadline: Duration,
+    ) -> Option<(Option<PossibleMove>, f32)> {
+        while let Some(curr_move) = moves.pop() {
+            let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
+            unsafe {
+                PSBCOUNT += 1;
+            }
+            if (board_with_move.score - mate_multiplier * MATE).abs() < 0.1 {
+                // No need to search further we have a mate
+                self.move_cache.release(moves);
+                return Some((Some(curr_move), board_with_move.score));
+            }
+            let average_scoring_duration = self.scoring_timings.calc_average() * 16;
+            if average_scoring_duration < single_move_deadline {
+                board_with_move.score = (self
+                    .best_move_for_internal(&mut board_with_move, &single_move_deadline)
+                    .1
+                    * 10.0
+                    + start_board.score
+                    + board_with_move.score)
+                    / 12.0;
+            };
+            start_board.continuation.insert(curr_move, board_with_move);
+        }
+        self.move_cache.release(moves);
+
+        None
     }
 }
