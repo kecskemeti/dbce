@@ -21,11 +21,14 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::board::PSBoard;
+use crate::baserules::board::{
+    black_can_castle, kingside_castle, queenside_castle, white_can_castle, Castling, PSBoard,
+};
 use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
+use enumset::EnumSet;
 use std::cell::RefCell;
 use std::cmp::{max, min};
 
@@ -250,7 +253,7 @@ impl PSBoard {
         if !self.continuation.is_empty() {
             return self.continuation.keys().for_each(|k| the_moves.push(*k));
         }
-        let king_move_call = if castling_allowed {
+        let king_move_call = if castling_allowed && !self.castling.is_empty() {
             PSBoard::gen_king_moves_with_castling
         } else {
             PSBoard::gen_king_moves
@@ -300,15 +303,16 @@ impl PSBoard {
         // Castling:
         if row == self.who_moves.piece_row() && col == 4 {
             // the king is in its original location we need a more in depth check on castling
-            if (self.who_moves == White && self.castling & 12 != 0)
-                || (self.who_moves == Black && self.castling & 3 != 0)
+            if (self.who_moves == White && !self.castling.is_disjoint(white_can_castle()))
+                || (self.who_moves == Black && !self.castling.is_disjoint(black_can_castle()))
             {
                 // there are castling opportunities
-                static CASTLING_SIDE: [u8; 2] = [10, 5]; //queen, king
+                static CASTLING_SIDE: [EnumSet<Castling>; 2] =
+                    [queenside_castle(), kingside_castle()];
                 static CASTLING_RANGES: [(i8, i8); 2] = [(1, 3), (5, 6)];
                 static CASTLING_MOVES: [[i8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
                 'outer: for (idx, side) in CASTLING_SIDE.iter().enumerate() {
-                    if self.castling & side != 0 {
+                    if !self.castling.is_disjoint(*side) {
                         let mut castling_range_free = true;
                         for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
                             castling_range_free &= self.get_loc((row, lc)).is_none();

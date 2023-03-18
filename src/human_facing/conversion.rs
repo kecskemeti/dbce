@@ -20,11 +20,15 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board::PSBoard;
+use crate::baserules::board::Castling::{
+    BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
+};
+use crate::baserules::board::{Castling, PSBoard};
 use crate::baserules::board_rep::PieceState;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use ahash::AHashMap;
+use enumset::EnumSet;
 use std::fmt::{Display, Formatter};
 
 /// This allows a simple text display of the board on your console. Good for debugging purposes
@@ -64,7 +68,7 @@ impl PSBoard {
     pub fn from_fen(fen: &str) -> PSBoard {
         let mut raw = [[None; 8]; 8];
         let mut next_move = None;
-        let mut castling = 255u8;
+        let mut castling = EnumSet::empty();
         let mut ep = None;
         let mut half: Option<u16> = None;
         let mut full: Option<u16> = None;
@@ -100,13 +104,13 @@ impl PSBoard {
                     });
                 }
                 2 => {
-                    castling = 0;
+                    castling = EnumSet::new();
                     for castle_right in fen_part.chars() {
                         match castle_right {
-                            'Q' => castling |= 8,
-                            'K' => castling |= 4,
-                            'q' => castling |= 2,
-                            'k' => castling |= 1,
+                            'Q' => castling |= WhiteQueenSide,
+                            'K' => castling |= WhiteKingSide,
+                            'q' => castling |= BlackQueenSide,
+                            'k' => castling |= BlackKingSide,
                             '-' => {}
                             _ => panic!("Incorrect castling details"),
                         }
@@ -137,11 +141,7 @@ impl PSBoard {
             } else {
                 panic!("Unspecified whose turn it is!")
             },
-            castling: if castling != 255 {
-                castling
-            } else {
-                panic!("Castling details never came!")
-            },
+            castling,
             ep,
             move_count: if let Some(mc) = full {
                 mc
@@ -187,17 +187,18 @@ impl PSBoard {
         ret.push(' ');
         ret.push(if self.who_moves == White { 'w' } else { 'b' });
         ret.push(' ');
-        if self.castling == 0 {
+        if self.castling.is_empty() {
             ret.push('-');
         } else {
             static CASTLING_ORDER: &str = "QKqk";
-            static CASTLING_MASKS: [u8; 4] = [8, 4, 2, 1];
+            static CASTLING_MASKS: [Castling; 4] =
+                [WhiteQueenSide, WhiteKingSide, BlackQueenSide, BlackKingSide];
             ret.push_str(
                 CASTLING_ORDER
                     .chars()
                     .zip(CASTLING_MASKS.iter())
                     .filter_map(|(sym, mask)| {
-                        if self.castling & mask == *mask {
+                        if self.castling.contains(*mask) {
                             Some(sym)
                         } else {
                             None

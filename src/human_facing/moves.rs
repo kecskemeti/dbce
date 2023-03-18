@@ -217,7 +217,7 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> PSBoard {
         PossibleMove {
             the_move: BaseMove { from, to },
             pawn_promotion: None,
-            rook: if board.castling != 0
+            rook: if !board.castling.is_empty()
                 && (to.0 == 0 || to.0 == 7)
                 && from.1 == 4
                 && (to.1 == 6 || to.1 == 2)

@@ -23,15 +23,43 @@
 
 extern crate rand;
 
+use crate::baserules::board::Castling::{
+    BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
+};
 use crate::baserules::board_rep::{BoardPos, PieceState, PossibleMove};
 use crate::baserules::piece_color::PieceColor;
-use crate::baserules::piece_color::PieceColor::*;
-use crate::baserules::piece_kind::PieceKind::*;
+use crate::baserules::piece_color::PieceColor::{Black, White};
+use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use ahash::AHashMap;
+use enumset::{enum_set, EnumSet, EnumSetType};
 
 pub static MATE: f32 = 1000.0;
 
 pub static mut PSBCOUNT: u32 = 0;
+
+#[derive(EnumSetType, Debug)]
+pub enum Castling {
+    WhiteKingSide,
+    WhiteQueenSide,
+    BlackKingSide,
+    BlackQueenSide,
+}
+
+pub const fn white_can_castle() -> EnumSet<Castling> {
+    enum_set!(WhiteKingSide | WhiteQueenSide)
+}
+
+pub const fn black_can_castle() -> EnumSet<Castling> {
+    enum_set!(BlackKingSide | BlackQueenSide)
+}
+
+pub const fn queenside_castle() -> EnumSet<Castling> {
+    enum_set!(BlackQueenSide | WhiteQueenSide)
+}
+
+pub const fn kingside_castle() -> EnumSet<Castling> {
+    enum_set!(WhiteKingSide | BlackKingSide)
+}
 
 pub type RawBoard = [[Option<PieceState>; 8]; 8];
 
@@ -43,7 +71,7 @@ pub struct PSBoard {
     /// Identifies the color who should move next
     pub who_moves: PieceColor,
     /// Tells what kind of castling is allowed
-    pub castling: u8,
+    pub castling: EnumSet<Castling>,
     /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<BoardPos>,
     /// The number of moves done so far
@@ -97,7 +125,7 @@ impl PSBoard {
         PSBoard {
             board: raw,
             who_moves: White,
-            castling: 15,
+            castling: BlackKingSide | BlackQueenSide | WhiteKingSide | WhiteQueenSide,
             ep: None,
             move_count: 0,
             half_moves_since_pawn: 0,
@@ -171,53 +199,65 @@ impl PSBoard {
                 } else {
                     None
                 },
-                castling: self.castling & {
-                    if current_piece.kind == King {
-                        if current_piece.color == White {
-                            3
-                        } else {
-                            12
-                        }
-                    } else if current_piece.kind == Rook {
-                        if the_move.the_move.from.1 == 0 {
-                            if current_piece.color == White {
-                                7
-                            } else {
-                                13
-                            }
-                        } else if the_move.the_move.from.1 == 7 {
-                            if current_piece.color == White {
-                                11
-                            } else {
-                                14
-                            }
-                        } else {
-                            15
-                        }
-                    } else if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
-                        && (the_move.the_move.to.1 == 0 || the_move.the_move.to.1 == 7)
-                    {
-                        if let Some(taken) = previous_piece {
-                            if taken.kind == Rook {
-                                let mut rook_side =
-                                    if the_move.the_move.to.1 == 7 { 1u8 } else { 2 };
-                                rook_side <<= if the_move.the_move.to.0 == 0 { 2 } else { 0 };
-                                (!rook_side) & 15
-                            } else {
-                                15
-                            }
-                        } else {
-                            15
-                        }
-                    } else {
-                        15
-                    }
-                },
+                castling: self.determine_castling_rights(current_piece, the_move, previous_piece),
                 half_moves_since_pawn: self.half_moves_since_pawn + 1,
                 move_count: self.move_count + u16::from(current_piece.color == Black),
                 continuation: AHashMap::new(),
             }
         }
+    }
+
+    fn determine_castling_rights(
+        &self,
+        current_piece: &PieceState,
+        the_move: &PossibleMove,
+        possible_capture: &Option<PieceState>,
+    ) -> EnumSet<Castling> {
+        let mut new_castling = self.castling;
+        if !self.castling.is_empty() {
+            if current_piece.kind == King {
+                new_castling ^= if current_piece.color == White {
+                    WhiteKingSide | WhiteQueenSide
+                } else {
+                    BlackQueenSide | BlackKingSide
+                };
+            } else if current_piece.kind == Rook {
+                if the_move.the_move.from.1 == 0 {
+                    new_castling ^= if current_piece.color == White {
+                        WhiteKingSide
+                    } else {
+                        BlackKingSide
+                    };
+                } else if the_move.the_move.from.1 == 7 {
+                    new_castling ^= if current_piece.color == White {
+                        WhiteQueenSide
+                    } else {
+                        BlackQueenSide
+                    };
+                }
+            } else if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
+                && (the_move.the_move.to.1 == 0 || the_move.the_move.to.1 == 7)
+            {
+                if let Some(taken) = possible_capture {
+                    if taken.kind == Rook {
+                        if the_move.the_move.to.1 == 7 {
+                            new_castling ^= if current_piece.color == White {
+                                BlackQueenSide
+                            } else {
+                                WhiteQueenSide
+                            };
+                        } else {
+                            new_castling ^= if current_piece.color == White {
+                                BlackKingSide
+                            } else {
+                                WhiteKingSide
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        new_castling
     }
 
     /// Determines what piece is at a particular location of the board
