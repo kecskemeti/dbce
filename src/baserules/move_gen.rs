@@ -249,6 +249,17 @@ impl PSBoard {
     }
 
     /// This figures out all the possible moves on the particular board
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// let board = PSBoard::new();
+    /// let mut moves = Vec::new();
+    /// board.gen_potential_moves(true, &mut moves);
+    /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==(0,1)&&m.the_move.to==(2,2));
+    /// assert!(van_geet_opening_found);
+    /// ```
     pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
         if !self.continuation.is_empty() {
             return self.continuation.keys().for_each(|k| the_moves.push(*k));

@@ -84,8 +84,7 @@ lazy_static! {
         (0, 1),
         (0, -1),
         ],
-        // If there is a bug in the code, we panic
-        Pawn => panic!("Pawns cannot be queried here"),
+        Pawn => Vec::new(),
     };
     static ref PIECE_CHARS: EnumMap<PieceKind, char> = enum_map! {
             King => 'k',
