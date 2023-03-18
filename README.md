@@ -1,3 +1,5 @@
+![GitHub](https://img.shields.io/github/license/kecskemeti/dbce) ![GitHub top language](https://img.shields.io/github/languages/top/kecskemeti/dbce)  ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/rust.yml) ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kecskemeti/dbce/test.yml)
+
 # dbce
 
 A simple lichess chess bot written in rust
