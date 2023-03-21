@@ -27,6 +27,7 @@ use crate::human_facing::moves::make_an_uci_move;
 use crate::util::{DurationAverage, VecCache};
 use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
+use std::error::Error;
 use std::ptr;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -45,14 +46,15 @@ impl GameState {
         &self.worked_on_board
     }
 
-    pub fn make_an_uci_move(&mut self, themove: &str) {
-        self.worked_on_board = make_an_uci_move(&mut self.worked_on_board, themove);
+    pub fn make_an_uci_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
+        self.worked_on_board = make_an_uci_move(&mut self.worked_on_board, themove)?;
+        Ok(())
     }
 }
 
 impl Engine {
     pub fn new() -> (Engine, GameState) {
-        let mut sample_board = PSBoard::new();
+        let mut sample_board = PSBoard::default();
         let mut moves = Vec::new();
         sample_board.gen_potential_moves(false, &mut moves);
         let mut scoring_timings = DurationAverage::new(50, || Duration::from_secs(1));
@@ -65,7 +67,7 @@ impl Engine {
                 scoring_timings,
             },
             GameState {
-                worked_on_board: PSBoard::new(),
+                worked_on_board: PSBoard::default(),
             },
         )
     }

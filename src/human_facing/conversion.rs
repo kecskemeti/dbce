@@ -190,9 +190,9 @@ impl PSBoard {
         if self.castling.is_empty() {
             ret.push('-');
         } else {
-            static CASTLING_ORDER: &str = "QKqk";
+            static CASTLING_ORDER: &str = "KQkq";
             static CASTLING_MASKS: [Castling; 4] =
-                [WhiteQueenSide, WhiteKingSide, BlackQueenSide, BlackKingSide];
+                [WhiteKingSide, WhiteQueenSide, BlackKingSide, BlackQueenSide];
             ret.push_str(
                 CASTLING_ORDER
                     .chars()
@@ -215,7 +215,7 @@ impl PSBoard {
         } else {
             ret.push('-');
         }
-        ret.push_str(format!(" {} {}", self.half_moves_since_pawn, self.move_count).as_str());
+        ret.push_str(format!(" {} {}", self.half_moves_since_pawn, self.move_count + 1).as_str());
         ret
     }
 }

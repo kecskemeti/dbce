@@ -24,7 +24,9 @@
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
+use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 
 /// Used to represent the board position
 /// For example: square a1 = (0,0), square h8 (7,7)
@@ -60,13 +62,68 @@ impl Display for PieceState {
     }
 }
 
+impl PieceState {
+    /// Turns a single letter FEN notation to a piece state
+    ///
+    /// # Example:
+    /// ```
+    /// use dbce::baserules::board_rep::PieceState;
+    /// use dbce::baserules::piece_color::PieceColor::White;
+    /// use dbce::baserules::piece_kind::PieceKind::King;
+    /// let white_king = PieceState {color: White, kind: King };
+    /// assert_eq!(PieceState::from_char('K'),white_king);
+    /// ```
+    pub fn from_char(fen_piece: char) -> PieceState {
+        PieceState {
+            kind: PieceKind::from_char(fen_piece),
+            color: if fen_piece.is_ascii_lowercase() {
+                Black
+            } else {
+                White
+            },
+        }
+    }
+}
+
 /// Simple move representation
-#[derive(Eq, Hash, Copy, Clone, PartialEq)]
+#[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
 pub struct BaseMove {
     /// The square where the piece started to move from
     pub from: BoardPos,
     /// The square where the piece ended up on
     pub to: BoardPos,
+}
+
+impl BaseMove {
+    pub fn from_two_pos(from: BoardPos, to: BoardPos) -> BaseMove {
+        BaseMove { from, to }
+    }
+
+    /// Creates a base move from an uci string representation
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board_rep::BaseMove;
+    /// let rook_a3 = BaseMove {
+    ///     from: (0,0),
+    ///     to: (2,0)
+    /// };
+    /// let potential_parsed_rook_move = BaseMove::from_uci("a1a3");
+    /// assert!(potential_parsed_rook_move.is_ok());
+    /// assert_eq!(rook_a3, potential_parsed_rook_move.unwrap());
+    /// ```
+    pub fn from_uci(uci: &str) -> Result<BaseMove, Box<dyn Error>> {
+        Ok(BaseMove {
+            from: (
+                i8::from_str(&uci[1..2])? - 1,
+                (uci.as_bytes()[0] - b'a') as i8,
+            ),
+            to: (
+                i8::from_str(&uci[3..4])? - 1,
+                (uci.as_bytes()[2] - b'a') as i8,
+            ),
+        })
+    }
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
@@ -77,6 +134,28 @@ pub struct PossibleMove {
     pub pawn_promotion: Option<PieceKind>,
     /// If we have castling, then the rook also has to move alongside the king, the `BaseMove` is representing the king, here we represent the rook move
     pub rook: Option<BaseMove>,
+}
+
+impl PossibleMove {
+    pub fn simple_move(base: BaseMove) -> PossibleMove {
+        PossibleMove {
+            the_move: base,
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for PossibleMove {
+    fn default() -> Self {
+        PossibleMove {
+            the_move: BaseMove {
+                from: (0, 0),
+                to: (1, 0),
+            },
+            pawn_promotion: None,
+            rook: None,
+        }
+    }
 }
 
 impl Display for PossibleMove {

@@ -25,6 +25,7 @@ use crate::baserules::board_rep::{BaseMove, PossibleMove};
 use crate::baserules::piece_color::PieceColor::White;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
+use std::error::Error;
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
@@ -197,30 +198,29 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
 /// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
 /// # Panics
 /// when the received uci move is out of the usual uci move format's length constraints
-pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> PSBoard {
+pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, Box<dyn Error>> {
     let len = the_move.len();
     assert!(len < 6 && len > 3);
     let raw_move = the_move.as_bytes();
-    let from = ((raw_move[1] - b'1') as i8, (raw_move[0] - b'a') as i8);
-    let to = ((raw_move[3] - b'1') as i8, (raw_move[2] - b'a') as i8);
-    board.make_a_move(&if len == 5 {
+    let the_move = BaseMove::from_uci(the_move)?;
+    Ok(board.make_a_move(&if len == 5 {
         let promote_kind = PieceKind::from_char(raw_move[4] as char);
         PossibleMove {
-            the_move: BaseMove { from, to },
+            the_move,
             pawn_promotion: Some(promote_kind),
             rook: None,
         }
     } else {
-        let moving_piece = board.get_loc(from).as_ref().unwrap();
-        let rook_from = (from.0, if to.1 == 6 { 7 } else { 0 });
-        let rook_to = (from.0, if to.1 == 6 { 5 } else { 3 });
+        let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
+        let rook_from = (the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 });
+        let rook_to = (the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 });
         PossibleMove {
-            the_move: BaseMove { from, to },
+            the_move,
             pawn_promotion: None,
             rook: if !board.castling.is_empty()
-                && (to.0 == 0 || to.0 == 7)
-                && from.1 == 4
-                && (to.1 == 6 || to.1 == 2)
+                && (the_move.to.0 == 0 || the_move.to.0 == 7)
+                && the_move.from.1 == 4
+                && (the_move.to.1 == 6 || the_move.to.1 == 2)
                 && moving_piece.kind == King
             {
                 Some(BaseMove {
@@ -231,5 +231,5 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> PSBoard {
                 None
             },
         }
-    })
+    }))
 }

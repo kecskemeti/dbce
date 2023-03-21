@@ -85,16 +85,17 @@ pub struct PSBoard {
 }
 
 impl Default for PSBoard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PSBoard {
     /// Creates the standard starting position
     /// # Panics
     /// If we somehow end up generating a bigger than 8x8 board
-    pub fn new() -> PSBoard {
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// let starting_position = PSBoard::default();
+    /// assert_eq!("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", starting_position.to_fen());
+    /// ```
+    fn default() -> Self {
         let mut raw = [[None; 8]; 8];
         for (row_index, row) in raw.iter_mut().enumerate() {
             let (c, only_pawn) = match row_index {
@@ -133,7 +134,9 @@ impl PSBoard {
             continuation: AHashMap::new(),
         }
     }
+}
 
+impl PSBoard {
     /// Makes a move as per the internal representation
     /// Note that the move is not really checked for validity
     /// We will produce a completely new internal board representation as the result of the move
@@ -222,25 +225,26 @@ impl PSBoard {
                     BlackQueenSide | BlackKingSide
                 };
             } else if current_piece.kind == Rook {
-                if the_move.the_move.from.1 == 0 {
+                if the_move.the_move.from.1 == 7 {
                     new_castling ^= if current_piece.color == White {
                         WhiteKingSide
                     } else {
                         BlackKingSide
                     };
-                } else if the_move.the_move.from.1 == 7 {
+                } else if the_move.the_move.from.1 == 0 {
                     new_castling ^= if current_piece.color == White {
                         WhiteQueenSide
                     } else {
                         BlackQueenSide
                     };
                 }
-            } else if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
+            }
+            if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
                 && (the_move.the_move.to.1 == 0 || the_move.the_move.to.1 == 7)
             {
                 if let Some(taken) = possible_capture {
                     if taken.kind == Rook {
-                        if the_move.the_move.to.1 == 7 {
+                        if the_move.the_move.to.1 == 0 {
                             new_castling ^= if current_piece.color == White {
                                 BlackQueenSide
                             } else {
@@ -326,5 +330,88 @@ impl PSBoard {
         } else {
             -MATE
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::baserules::board::Castling::{
+        BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
+    };
+    use crate::baserules::board::{black_can_castle, queenside_castle, PSBoard};
+    use crate::baserules::board_rep::{BaseMove, PieceState, PossibleMove};
+    use crate::baserules::piece_kind::PieceKind::Queen;
+    use enumset::enum_set;
+
+    #[test]
+    fn check_castling_when_rook_taken() {
+        let silly_white =
+            PSBoard::from_fen("rn1qkbnr/pbpppppp/1p6/8/5P2/3P2P1/PPP1P2P/RNBQKBNR b KQkq - 0 1");
+        let moving_piece = PieceState::from_char('b');
+        let captured_piece = Some(PieceState::from_char('R'));
+        let the_capture = PossibleMove::simple_move(BaseMove::from_uci("b7h1").unwrap());
+        let castling_result =
+            silly_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
+        assert_eq!(
+            enum_set!(BlackQueenSide | BlackKingSide | WhiteQueenSide),
+            castling_result
+        );
+
+        let crazy_white =
+            PSBoard::from_fen("rnbqkbnr/pp1ppppp/8/8/4P1P1/3P1P1P/PpP5/RNBQKBNR b KQkq - 0 1");
+        let moving_piece = PieceState::from_char('p');
+        let captured_piece = Some(PieceState::from_char('R'));
+        let the_capture = PossibleMove {
+            the_move: BaseMove::from_uci("b2a1").unwrap(),
+            pawn_promotion: Some(Queen),
+            rook: None,
+        };
+        let castling_result =
+            crazy_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
+        assert_eq!(
+            enum_set!(BlackQueenSide | BlackKingSide | WhiteKingSide),
+            castling_result
+        );
+    }
+
+    #[test]
+    fn check_castling_when_rook_moves() {
+        let casual_rook_black =
+            PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1");
+        let moving_piece = PieceState::from_char('r');
+        let the_move = PossibleMove::simple_move(BaseMove::from_uci("a8a6").unwrap());
+        let castling_result =
+            casual_rook_black.determine_castling_rights(&moving_piece, &the_move, &None);
+        assert_eq!(
+            enum_set!(BlackKingSide | WhiteKingSide | WhiteQueenSide),
+            castling_result
+        );
+
+        let attacking_rook_black =
+            PSBoard::from_fen("rnbqkbnr/pppppp2/8/6P1/6p1/5P2/PPPPP3/RNBQKBNR b KQkq - 0 1");
+        let moving_piece = PieceState::from_char('r');
+        let captured_piece = Some(PieceState::from_char('R'));
+        let the_move = PossibleMove::simple_move(BaseMove::from_uci("h8h1").unwrap());
+        let castling_result = attacking_rook_black.determine_castling_rights(
+            &moving_piece,
+            &the_move,
+            &captured_piece,
+        );
+        assert_eq!(queenside_castle(), castling_result);
+    }
+
+    #[test]
+    fn check_castling_when_king_moves() {
+        let bongcloud_opening_prep =
+            PSBoard::from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
+        let moving_piece = PieceState::from_char('K');
+        let making_the_bongcloud = PossibleMove::simple_move(BaseMove::from_uci("e1e2").unwrap());
+
+        let castling_result = bongcloud_opening_prep.determine_castling_rights(
+            &moving_piece,
+            &making_the_bongcloud,
+            &None,
+        );
+        assert_eq!(black_can_castle(), castling_result);
     }
 }
