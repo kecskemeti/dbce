@@ -272,9 +272,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     for abot_json in String::from_utf8(Vec::from(bytes?.as_ref()))?.lines() {
                         if let Ok(abot) = serde_json::from_str(abot_json) {
                             let abot: Value = abot;
-                            let botid = format!("{}", abot["id"]);
-                            if !declining_bots.contains(botid.as_str()) {
-                                bots.push(botid);
+                            let botid = &abot["id"];
+                            let botstr = botid.as_str().unwrap();
+                            if !declining_bots.contains(botstr) {
+                                bots.push(botstr.to_owned());
                             }
                         }
                     }
@@ -306,7 +307,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .post(format!("https://lichess.org/api/challenge/{target_bot}"))
                     .form(&req_form);
                 println!("Challenging bot: {target_bot}");
-                lichess_api_call(post_req).await?;
+                let resp = lichess_api_call(post_req).await?;
+                if !resp.status().is_success() {
+                    let rsp_txt = resp.text().await?;
+                    println!("Erroneous challenge response txt: {rsp_txt} ");
+                }
             }
             println!("Waiting for events:");
             {
