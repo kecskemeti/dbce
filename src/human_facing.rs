@@ -21,4 +21,5 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 pub mod conversion;
+pub mod helper;
 pub mod moves;

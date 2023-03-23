@@ -273,7 +273,7 @@ impl PSBoard {
     /// use dbce::baserules::piece_color::PieceColor::White;
     /// use dbce::baserules::piece_kind::PieceKind::King;
     ///
-    /// let board = PSBoard::new();
+    /// let board = PSBoard::default();
     /// let king = board.get_loc((0,4));
     /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
     /// ```

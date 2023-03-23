@@ -23,7 +23,7 @@
 use crate::baserules::board::{PSBoard, MATE, PSBCOUNT};
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor::*;
-use crate::human_facing::moves::make_an_uci_move;
+use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
 use crate::util::{DurationAverage, VecCache};
 use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
@@ -50,11 +50,29 @@ impl GameState {
         self.worked_on_board = make_an_uci_move(&mut self.worked_on_board, themove)?;
         Ok(())
     }
+
+    pub fn make_a_human_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
+        self.worked_on_board =
+            make_a_human_move(&mut self.worked_on_board, themove).ok_or("Conversion error")?;
+        Ok(())
+    }
+
+    pub fn make_a_generated_move(&mut self, themove: &PossibleMove) {
+        self.worked_on_board = self.worked_on_board.make_a_move(themove);
+    }
 }
 
 impl Engine {
     pub fn new() -> (Engine, GameState) {
-        let mut sample_board = PSBoard::default();
+        Engine::with_board_gen(PSBoard::default)
+    }
+
+    pub fn from_fen(fen: &str) -> (Engine, GameState) {
+        Engine::with_board_gen(|| PSBoard::from_fen(fen))
+    }
+
+    fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Engine, GameState) {
+        let mut sample_board = initial_board_provider();
         let mut moves = Vec::new();
         sample_board.gen_potential_moves(false, &mut moves);
         let mut scoring_timings = DurationAverage::new(50, || Duration::from_secs(1));
@@ -67,7 +85,7 @@ impl Engine {
                 scoring_timings,
             },
             GameState {
-                worked_on_board: PSBoard::default(),
+                worked_on_board: initial_board_provider(),
             },
         )
     }
@@ -175,7 +193,7 @@ impl Engine {
                 self.move_cache.release(moves);
                 return Some((Some(curr_move), board_with_move.score));
             }
-            let average_scoring_duration = self.scoring_timings.calc_average() * 16;
+            let average_scoring_duration = self.scoring_timings.calc_average() * 160000;
             if average_scoring_duration < single_move_deadline {
                 board_with_move.score = (self
                     .best_move_for_internal(&mut board_with_move, &single_move_deadline)

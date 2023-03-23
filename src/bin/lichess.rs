@@ -31,9 +31,9 @@ use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 
-use dbce::baserules::board::PSBCOUNT;
 use dbce::baserules::piece_color::PieceColor::{Black, White};
 use dbce::engine::Engine;
+use dbce::human_facing::helper;
 use dbce::util::DurationAverage;
 use serde_json::Value;
 
@@ -120,19 +120,9 @@ async fn play_a_game(
 
                         println!("Set a deadline of: {deadline:?}");
                         // it is our turn, let's see what we can come up with
-                        unsafe {
-                            PSBCOUNT = 0;
-                        }
-                        let ins = Instant::now();
-                        let mymove = engine.best_move_for(&mut state, &deadline);
-                        ourmovetime = ins.elapsed();
-                        println!("Move took {} ms", ourmovetime.as_millis());
-                        unsafe {
-                            println!(
-                                "{} kNodes/sec",
-                                u128::from(PSBCOUNT) / 1.max(ourmovetime.as_millis())
-                            );
-                        }
+                        let (dur, mymove) =
+                            helper::calculate_move_for_console(&mut engine, &mut state, &deadline);
+                        ourmovetime = dur;
                         for _ in 0..5 {
                             if let Ok(res) = lichess_api_call(client.post(format!(
                                 "{}{}",

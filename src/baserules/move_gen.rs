@@ -254,7 +254,7 @@ impl PSBoard {
     ///
     /// ```
     /// use dbce::baserules::board::PSBoard;
-    /// let board = PSBoard::new();
+    /// let board = PSBoard::default();
     /// let mut moves = Vec::new();
     /// board.gen_potential_moves(true, &mut moves);
     /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==(0,1)&&m.the_move.to==(2,2));
@@ -443,5 +443,54 @@ impl PSBoard {
             self.get_loc((row, col)).unwrap().kind.vec_moves(),
             the_moves,
         );
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::baserules::board::PSBoard;
+    use crate::baserules::board_rep::{BaseMove, PossibleMove};
+    use crate::engine::Engine;
+    use std::time::Duration;
+
+    /// Tests for this game: https://lichess.org/NPchEbrvI0qD
+    #[test]
+    fn failed_game_1() {
+        let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
+        let (mut engine, mut gamestate) =
+            Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
+
+        gamestate.make_a_human_move("Rc1").unwrap();
+        assert_eq!(format!("{board}"), format!("{}", gamestate.get_board()));
+
+        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
+        println!("{move_to_do:?}");
+        assert_eq!(
+            PossibleMove::simple_move(BaseMove::from_uci("a1c1").unwrap()),
+            move_to_do.0.unwrap()
+        );
+    }
+
+    /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
+    /// Ideally, this test should not have such a long deadline that we have now
+    #[test]
+    fn failed_game_2() {
+        let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
+        let (mut engine, mut gamestate) =
+            Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
+
+        gamestate.make_a_human_move("Qxf6").unwrap();
+        assert_eq!(format!("{board}"), format!("{}", gamestate.get_board()));
+
+        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(15000));
+        println!("{move_to_do:?}");
+        let acceptable_moves = [
+            PossibleMove::simple_move(BaseMove::from_uci("d8c7").unwrap()),
+            PossibleMove::simple_move(BaseMove::from_uci("d8e8").unwrap()),
+        ];
+        let the_move = move_to_do.0.unwrap();
+        assert!(acceptable_moves
+            .iter()
+            .any(|acceptable| acceptable.eq(&the_move)));
     }
 }

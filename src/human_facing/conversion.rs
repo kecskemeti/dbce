@@ -27,34 +27,96 @@ use crate::baserules::board::{Castling, PSBoard};
 use crate::baserules::board_rep::PieceState;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
+use crate::baserules::piece_kind::PieceKind::*;
 use ahash::AHashMap;
 use enumset::EnumSet;
 use std::fmt::{Display, Formatter};
 
-/// This allows a simple text display of the board on your console. Good for debugging purposes
-///
-/// # Example:
-/// ```
-/// use dbce::baserules::board::PSBoard;
-/// let immortal_game = PSBoard::from_fen("r1bk3r/p2pBpNp/n4n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 b - - 0 1");
-/// let formatted = format!("{immortal_game}");
-/// assert_eq!("Black to move, move 1\nr-bk---r\np--pBpNp\nn----n--\n-p-NP--P\n------P-\n---P----\nP-P-K---\nq-----b-\n",formatted);
-/// ```
+impl PieceState {
+    pub fn from_unicode(unicode_char: char) -> PieceState {
+        PieceState::from_char(match unicode_char {
+            '♔' => 'K',
+            '♕' => 'Q',
+            '♖' => 'R',
+            '♗' => 'B',
+            '♘' => 'N',
+            '♙' => 'P',
+            '♚' => 'k',
+            '♛' => 'q',
+            '♜' => 'r',
+            '♝' => 'b',
+            '♞' => 'n',
+            '♟' => 'p',
+            _ => panic!("Unknown piece!"),
+        })
+    }
+
+    pub fn to_unicode(&self) -> char {
+        let mut as_char = format!(
+            "{}",
+            match self.kind {
+                King => '♔',
+                Queen => '♕',
+                Rook => '♖',
+                Bishop => '♗',
+                Knight => '♘',
+                Pawn => '♙',
+            }
+        );
+        if self.color == Black {
+            let mut a = as_char.into_bytes();
+            let last = a.len() - 1;
+            a[last] += 6;
+            as_char = String::from_utf8(a).expect("Cannot transform back");
+        }
+        as_char.chars().next().unwrap()
+    }
+}
+
 impl Display for PSBoard {
+    /// This allows a simple text display of the board on your console. Good for debugging purposes
+    ///
+    /// # Example:
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// let immortal_game = PSBoard::from_fen("r1bk3r/p2pBpNp/n4n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 b - - 0 1");
+    /// let formatted = format!("{immortal_game}");
+    /// assert_eq!("Black to move, move 1\n  abcdefgh\n8 ♜-♝♚---♜ 8\n7 ♟--♟♗♟♘♟ 7\n6 ♞----♞-- 6\n5 -♟-♘♙--♙ 5\n4 ------♙- 4\n3 ---♙---- 3\n2 ♙-♙-♔--- 2\n1 ♛-----♝- 1\n  abcdefgh\n",formatted);
+    /// ```
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        static COL: &str = "  abcdefgh\n";
         let mut return_string = String::new();
-        return_string
-            .push_str(format!("{:?} to move, move {}\n", self.who_moves, self.move_count).as_str());
+        return_string.push_str(
+            format!(
+                "{:?} to move, move {}\n{COL}",
+                self.who_moves, self.move_count
+            )
+            .as_str(),
+        );
         for row in (0..8).rev() {
             for col in 0..8 {
-                return_string.push(if let Some(ps) = &self.get_loc((row, col)) {
-                    format!("{ps}").pop().unwrap()
+                let row_as_str = (row + 1).to_string();
+                let (prefix, suffix) = if col == 0 {
+                    (format!("{} ", row_as_str), String::new())
+                } else if col == 7 {
+                    (String::new(), format!(" {}", row_as_str))
                 } else {
-                    '-'
-                });
+                    (String::new(), String::new())
+                };
+                return_string.push_str(&format!(
+                    "{}{}{}",
+                    prefix,
+                    if let Some(ps) = &self.get_loc((row, col)) {
+                        format!("{}", ps.to_unicode()).pop().unwrap()
+                    } else {
+                        '-'
+                    },
+                    suffix
+                ));
             }
             return_string.push('\n');
         }
+        return_string.push_str(COL);
         write!(f, "{return_string}")
     }
 }
