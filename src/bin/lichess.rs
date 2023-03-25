@@ -37,9 +37,6 @@ use dbce::human_facing::helper;
 use dbce::util::DurationAverage;
 use serde_json::Value;
 
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 async fn play_a_game(
     gameid: &str,
     botid: &str,
@@ -83,7 +80,7 @@ async fn play_a_game(
             if gamestate["type"] == "gameState" {
                 if gamestate["status"] == "started" || gamestate["status"] == "created" {
                     if impossiblemove.is_some() {
-                        lichess_api_call(client.post(resignwithgameid)).await?;
+                        lichess_api_call(client.post(resignwithgameid.clone())).await?;
                         panic!(
                             "Could not make the following move {impossiblemove:?} on the board:\n {} \n {}",
                             state.get_board(),
@@ -107,7 +104,8 @@ async fn play_a_game(
                         } else {
                             1 // Let's just allow as much thought now as we can go for
                         };
-                    if currentboard.who_moves == *ourcolor.as_ref().unwrap() {
+                    let detected_color = *ourcolor.as_ref().unwrap();
+                    if currentboard.who_moves == detected_color {
                         let our_rem_time = (i128::from(if currentboard.who_moves == White {
                             white_rem_time
                         } else {
@@ -118,27 +116,46 @@ async fn play_a_game(
                         let deadline =
                             Duration::from_millis(1.max(our_rem_time / deadline_divisor));
 
-                        println!("Set a deadline of: {deadline:?}");
-                        // it is our turn, let's see what we can come up with
-                        let (dur, mymove) =
-                            helper::calculate_move_for_console(&mut engine, &mut state, &deadline);
-                        ourmovetime = dur;
-                        for _ in 0..5 {
-                            if let Ok(res) = lichess_api_call(client.post(format!(
-                                "{}{}",
-                                movewithgameid,
-                                mymove.0.as_ref().unwrap()
-                            )))
-                            .await
-                            {
-                                if res.status().is_success() {
-                                    impossiblemove = None;
-                                    break;
-                                }
+                        for _ in 0..3 {
+                            // it is our turn, let's see what we can come up with
+                            let (dur, mymove) = helper::calculate_move_for_console(
+                                &mut engine,
+                                &mut state,
+                                &deadline,
+                            );
+                            ourmovetime = dur;
+                            if detected_color.is_this_resignable(mymove.1) {
+                                println!("Resign...");
+                                lichess_api_call(client.post(resignwithgameid.clone())).await?;
+                                break;
                             }
-                            println!("Move was not possible to send, retry..");
-                            sleep(Duration::from_millis(500));
-                            impossiblemove = Some(*mymove.0.as_ref().unwrap());
+                            for _ in 0..5 {
+                                if let Ok(res) = lichess_api_call(client.post(format!(
+                                    "{}{}",
+                                    movewithgameid,
+                                    mymove.0.as_ref().unwrap()
+                                )))
+                                .await
+                                {
+                                    if res.status().is_success() {
+                                        impossiblemove = None;
+                                        break;
+                                    }
+                                }
+                                println!("Move was not possible to send, retry..");
+                                sleep(Duration::from_millis(500));
+                                impossiblemove = Some(*mymove.0.as_ref().unwrap());
+                            }
+                            if impossiblemove.is_some() {
+                                println!("We will try another move, as this one did not work out");
+                            } else {
+                                break;
+                            }
+                        }
+                        if impossiblemove.is_some() {
+                            println!(
+                                "Could not make the move, let's see if game status has changed"
+                            );
                         }
                     } else {
                         // This was sent to us to inform about the opponent, we just remember when this
@@ -156,7 +173,7 @@ async fn play_a_game(
             }
             // Chat is not supported
         } else {
-            // Unparsable json
+            // Unparsable json, this is most likely a lichess 6 second refresh
             static FIVE_MINS: Duration = Duration::from_secs(300);
             if (prevopponentmove.elapsed().saturating_sub(ourmovetime)) > FIVE_MINS {
                 // we have not had a move from our opponent for over 5 mins.

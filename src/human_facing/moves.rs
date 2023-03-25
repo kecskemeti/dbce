@@ -29,7 +29,6 @@ use std::error::Error;
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
-#[allow(dead_code)]
 pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard> {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
@@ -84,11 +83,10 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
                     'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
                         col.push((consecutive as u8 - b'a') as i8)
                     }
-                    'x' => {}
+                    'x' | '+' | '#' => {}
                     '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => {
                         row.push((consecutive as u8 - b'1') as i8)
                     }
-
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
                         if promotion {
@@ -198,6 +196,15 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
 /// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
 /// # Panics
 /// when the received uci move is out of the usual uci move format's length constraints
+///
+/// # Example
+/// ```
+/// use dbce::baserules::board::PSBoard;
+/// use dbce::human_facing::moves::make_an_uci_move;
+/// let mut opera_game = PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17");
+/// let opera_result = make_an_uci_move(&mut opera_game, "d1d8").unwrap();
+/// assert_eq!("1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17", opera_result.to_fen());
+/// ```
 pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, Box<dyn Error>> {
     let len = the_move.len();
     assert!(len < 6 && len > 3);

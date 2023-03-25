@@ -24,3 +24,6 @@ pub mod baserules;
 pub mod engine;
 pub mod human_facing;
 pub mod util;
+
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

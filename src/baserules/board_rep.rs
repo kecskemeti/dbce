@@ -137,6 +137,15 @@ pub struct PossibleMove {
 }
 
 impl PossibleMove {
+    /// Allows creating moves that does not involve pawn promotions or castling with a simple call
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// let uci = "e5e6";
+    /// let a_move = PossibleMove::simple_move(BaseMove::from_uci(uci).unwrap());
+    /// assert_eq!(uci, format!("{a_move}"));
+    /// ```
     pub fn simple_move(base: BaseMove) -> PossibleMove {
         PossibleMove {
             the_move: base,

@@ -93,7 +93,7 @@ impl Default for PSBoard {
     /// ```
     /// use dbce::baserules::board::PSBoard;
     /// let starting_position = PSBoard::default();
-    /// assert_eq!("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", starting_position.to_fen());
+    /// assert_eq!("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0", starting_position.to_fen());
     /// ```
     fn default() -> Self {
         let mut raw = [[None; 8]; 8];
@@ -143,6 +143,16 @@ impl PSBoard {
     /// This will allow further evaluation. This is done unless we have the board already pre-calculated earlier
     /// # Panics
     /// If there is a request to make a move for a piece that does not exist on the board
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+    /// let bishop_moves = PossibleMove::simple_move(BaseMove::from_uci("f1b5").unwrap());
+    /// let ruy_lopez = kings_knight_opening.make_a_move(&bishop_moves);
+    /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
+    /// ```
     pub fn make_a_move(&mut self, the_move: &PossibleMove) -> PSBoard {
         let the_new_board = self.continuation.remove(the_move);
         if let Some(precalculated_board) = the_new_board {

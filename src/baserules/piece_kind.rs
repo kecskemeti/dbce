@@ -100,6 +100,14 @@ impl PieceKind {
     /// Allows pieces to be determined based on uci and classical chess notation
     /// # Panics
     /// When we receive a character to translate that we cannot translate to the usual notation
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::piece_kind::PieceKind;
+    /// let bishop_as_char = 'b';
+    /// let bishop = PieceKind::from_char(bishop_as_char);
+    /// assert_eq!(bishop_as_char, bishop.to_char());
+    /// ```
     pub fn from_char(piece: char) -> PieceKind {
         let idx: usize = (piece.to_ascii_lowercase() as i8 - b'b' as i8)
             .try_into()

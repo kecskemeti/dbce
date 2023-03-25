@@ -122,7 +122,6 @@ impl Display for PSBoard {
 }
 
 impl PSBoard {
-    #[allow(dead_code)]
     /// Allows initialising a particular position from fen
     /// <https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation>
     /// # Panics
@@ -219,7 +218,6 @@ impl PSBoard {
         }
     }
 
-    #[allow(dead_code)]
     /// Allows exporting a `PSBoard` to fen for external analysis
     /// <https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation>
     /// # Panics
@@ -277,7 +275,7 @@ impl PSBoard {
         } else {
             ret.push('-');
         }
-        ret.push_str(format!(" {} {}", self.half_moves_since_pawn, self.move_count + 1).as_str());
+        ret.push_str(format!(" {} {}", self.half_moves_since_pawn, self.move_count).as_str());
         ret
     }
 }
