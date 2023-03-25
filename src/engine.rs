@@ -29,6 +29,7 @@ use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
 use std::error::Error;
 use std::ptr;
+use std::thread::LocalKey;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -115,7 +116,7 @@ impl Engine {
         state: &mut GameState,
         deadline: &Duration,
     ) -> (Option<PossibleMove>, f32) {
-        self.best_move_for_internal(&mut state.worked_on_board, deadline)
+        self.best_move_for_internal(&mut state.worked_on_board, deadline, true)
     }
 
     // Determines the best move on the depth asked for
@@ -124,6 +125,7 @@ impl Engine {
         &mut self,
         start_board: &mut PSBoard,
         deadline: &Duration,
+        look_ahead: bool,
     ) -> (Option<PossibleMove>, f32) {
         let mut ret = (None, start_board.score);
         let mate_multiplier = match start_board.who_moves {
@@ -136,14 +138,19 @@ impl Engine {
             assert_eq!(0, moves.len());
             start_board.gen_potential_moves(true, &mut moves);
             let movecount = moves.len();
-            //            println!("{} Potential moves: {:?}", prefix, moves);
+            println!("Potential moves: {:?}", moves);
             let single_move_deadline = deadline
                 .checked_div(movecount as u32)
                 .expect("Could not generate a single move!!!");
             // println!("Single move deadline: {:?}", single_move_deadline);
 
-            let possible_mate =
-                self.countdown(moves, start_board, mate_multiplier, single_move_deadline);
+            let possible_mate = self.countdown(
+                moves,
+                start_board,
+                mate_multiplier,
+                single_move_deadline,
+                look_ahead,
+            );
 
             if let Some(actual_mate) = possible_mate {
                 ret = actual_mate;
@@ -176,12 +183,13 @@ impl Engine {
         ret
     }
 
-    pub fn countdown(
+    fn countdown(
         &mut self,
         mut moves: Vec<PossibleMove>,
         start_board: &mut PSBoard,
         mate_multiplier: f32,
         single_move_deadline: Duration,
+        look_ahead: bool,
     ) -> Option<(Option<PossibleMove>, f32)> {
         while let Some(curr_move) = moves.pop() {
             let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
@@ -194,9 +202,9 @@ impl Engine {
                 return Some((Some(curr_move), board_with_move.score));
             }
             let average_scoring_duration = self.scoring_timings.calc_average() * 160000;
-            if average_scoring_duration < single_move_deadline {
+            if average_scoring_duration < single_move_deadline || look_ahead {
                 board_with_move.score = (self
-                    .best_move_for_internal(&mut board_with_move, &single_move_deadline)
+                    .best_move_for_internal(&mut board_with_move, &single_move_deadline, false)
                     .1
                     * 10.0
                     + start_board.score
