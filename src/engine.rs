@@ -29,7 +29,6 @@ use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
 use std::error::Error;
 use std::ptr;
-use std::thread::LocalKey;
 use std::time::Duration;
 use tokio::time::Instant;
 
