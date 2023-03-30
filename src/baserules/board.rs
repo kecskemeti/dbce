@@ -78,8 +78,10 @@ pub struct PSBoard {
     pub move_count: u16,
     /// allows draw condition check
     pub half_moves_since_pawn: u16,
-    /// The estimated score of this board
+    /// The estimated score of this board, without considering its possible continuations
     pub score: f32,
+    /// The overall expected score of this board after considering the continuations
+    pub adjusted_score: f32,
     /// If we have calculated a few positions ahead from this board, we store these positions here
     pub continuation: AHashMap<PossibleMove, PSBoard>,
 }
@@ -131,6 +133,7 @@ impl Default for PSBoard {
             move_count: 0,
             half_moves_since_pawn: 0,
             score: 0f32,
+            adjusted_score: f32::NAN,
             continuation: AHashMap::new(),
         }
     }
@@ -149,7 +152,7 @@ impl PSBoard {
     /// use dbce::baserules::board::PSBoard;
     /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
     /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
-    /// let bishop_moves = PossibleMove::simple_move(BaseMove::from_uci("f1b5").unwrap());
+    /// let bishop_moves = PossibleMove::simple_from_uci("f1b5").unwrap();
     /// let ruy_lopez = kings_knight_opening.make_a_move(&bishop_moves);
     /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
     /// ```
@@ -197,6 +200,7 @@ impl PSBoard {
                 .unwrap();
             PSBoard {
                 score: PSBoard::score_raw(&raw_board),
+                adjusted_score: f32::NAN,
                 board: raw_board,
                 who_moves: match current_piece.color {
                     White => Black,
@@ -359,7 +363,7 @@ mod test {
             PSBoard::from_fen("rn1qkbnr/pbpppppp/1p6/8/5P2/3P2P1/PPP1P2P/RNBQKBNR b KQkq - 0 1");
         let moving_piece = PieceState::from_char('b');
         let captured_piece = Some(PieceState::from_char('R'));
-        let the_capture = PossibleMove::simple_move(BaseMove::from_uci("b7h1").unwrap());
+        let the_capture = PossibleMove::simple_from_uci("b7h1").unwrap();
         let castling_result =
             silly_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
         assert_eq!(
@@ -389,7 +393,7 @@ mod test {
         let casual_rook_black =
             PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1");
         let moving_piece = PieceState::from_char('r');
-        let the_move = PossibleMove::simple_move(BaseMove::from_uci("a8a6").unwrap());
+        let the_move = PossibleMove::simple_from_uci("a8a6").unwrap();
         let castling_result =
             casual_rook_black.determine_castling_rights(&moving_piece, &the_move, &None);
         assert_eq!(
@@ -401,7 +405,7 @@ mod test {
             PSBoard::from_fen("rnbqkbnr/pppppp2/8/6P1/6p1/5P2/PPPPP3/RNBQKBNR b KQkq - 0 1");
         let moving_piece = PieceState::from_char('r');
         let captured_piece = Some(PieceState::from_char('R'));
-        let the_move = PossibleMove::simple_move(BaseMove::from_uci("h8h1").unwrap());
+        let the_move = PossibleMove::simple_from_uci("h8h1").unwrap();
         let castling_result = attacking_rook_black.determine_castling_rights(
             &moving_piece,
             &the_move,
@@ -415,7 +419,7 @@ mod test {
         let bongcloud_opening_prep =
             PSBoard::from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
         let moving_piece = PieceState::from_char('K');
-        let making_the_bongcloud = PossibleMove::simple_move(BaseMove::from_uci("e1e2").unwrap());
+        let making_the_bongcloud = PossibleMove::simple_from_uci("e1e2").unwrap();
 
         let castling_result = bongcloud_opening_prep.determine_castling_rights(
             &moving_piece,

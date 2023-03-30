@@ -449,7 +449,7 @@ impl PSBoard {
 #[cfg(test)]
 mod test {
     use crate::baserules::board::PSBoard;
-    use crate::baserules::board_rep::{BaseMove, PossibleMove};
+    use crate::baserules::board_rep::PossibleMove;
     use crate::engine::Engine;
     use crate::human_facing::helper::find_max_depth;
     use std::time::Duration;
@@ -466,7 +466,7 @@ mod test {
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         assert_eq!(
-            PossibleMove::simple_move(BaseMove::from_uci("a1c1").unwrap()),
+            PossibleMove::simple_from_uci("a1c1").unwrap(),
             move_to_do.0.unwrap()
         );
     }
@@ -483,8 +483,8 @@ mod test {
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         let acceptable_moves = [
-            PossibleMove::simple_move(BaseMove::from_uci("d8c7").unwrap()),
-            PossibleMove::simple_move(BaseMove::from_uci("d8e8").unwrap()),
+            PossibleMove::simple_from_uci("d8c7").unwrap(),
+            PossibleMove::simple_from_uci("d8e8").unwrap(),
         ];
         let the_move = move_to_do.0.unwrap();
         assert!(acceptable_moves
@@ -507,26 +507,25 @@ mod test {
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         assert_eq!(
-            PossibleMove::simple_move(BaseMove::from_uci("f8e8").unwrap()),
+            PossibleMove::simple_from_uci("f8e8").unwrap(),
             move_to_do.0.unwrap()
         );
     }
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
-    /// Ideally, this test should not have such a long deadline that we have now
     #[test]
     fn failed_game_4() {
         let (mut engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
-        engine.best_move_for(&mut gamestate, &Duration::from_secs(2));
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         gamestate.make_a_human_move("d4").unwrap();
         gamestate.make_a_human_move("Nxh8").unwrap();
-        engine.best_move_for(&mut gamestate, &Duration::from_secs(2));
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         gamestate.make_a_human_move("dxc3").unwrap();
         gamestate.make_a_human_move("Qh5+").unwrap();
-        engine.best_move_for(&mut gamestate, &Duration::from_secs(2));
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         gamestate.make_a_human_move("Kd8").unwrap();
         gamestate.make_a_human_move("Nf7+").unwrap();
@@ -535,16 +534,44 @@ mod test {
         //     gamestate.get_board().to_fen()
         // );
 
-        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_secs(2));
+        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         let acceptable_moves = [
-            PossibleMove::simple_move(BaseMove::from_uci("d8c8").unwrap()),
-            PossibleMove::simple_move(BaseMove::from_uci("d8e8").unwrap()),
+            PossibleMove::simple_from_uci("d8c8").unwrap(),
+            PossibleMove::simple_from_uci("d8e8").unwrap(),
         ];
         let the_move = move_to_do.0.unwrap();
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
-        println!("{the_move}");
+        println!("{the_move}\n");
+        //        visualise_explored_moves(gamestate.get_board());
         assert!(acceptable_moves
             .iter()
             .any(|acceptable| acceptable.eq(&the_move)));
+    }
+
+    /// Tests for this game: https://lichess.org/73Bl5rBonV45
+    #[test]
+    fn failed_game_4_subtest() {
+        let (mut engine, mut gamestate) =
+            Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("d4").unwrap();
+        gamestate.make_a_human_move("Nxh8").unwrap();
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("dxc3").unwrap();
+        gamestate.make_a_human_move("Qh5+").unwrap();
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("Kd8").unwrap();
+        gamestate.make_a_human_move("Nf7+").unwrap();
+        engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("cxb2").unwrap();
+        let the_board = gamestate.get_board().clone();
+        let mut moves = Vec::new();
+        the_board.gen_potential_moves(true, &mut moves);
+        println!("{moves:?}");
+        assert!(moves.contains(&PossibleMove::simple_from_uci("f7d8").unwrap()));
     }
 }

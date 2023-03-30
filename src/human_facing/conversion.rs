@@ -196,6 +196,7 @@ impl PSBoard {
         }
         PSBoard {
             score: PSBoard::score_raw(&raw),
+            adjusted_score: f32::NAN,
             board: raw,
             who_moves: if let Some(mover) = next_move {
                 mover

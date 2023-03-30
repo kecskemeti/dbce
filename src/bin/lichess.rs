@@ -287,6 +287,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 }
+                bots.retain(|b| !b.eq(botid));
                 let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()));
                 static CHALLENGE_TIME_CONTROLS: [(&str, &str); 11] = [
                     ("600", "10"),
