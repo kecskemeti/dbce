@@ -28,8 +28,9 @@ use crate::util::{DurationAverage, VecCache};
 use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
 use std::error::Error;
-use std::ptr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{ptr, thread};
 use tokio::time::Instant;
 
 pub struct Engine {
@@ -208,38 +209,36 @@ impl Engine {
         ret
     }
 
-    fn countdown(
+    fn countdown_without_lookahead(
         &mut self,
         mut moves: Vec<PossibleMove>,
         start_board: &mut PSBoard,
         single_move_deadline: Duration,
-        look_ahead: bool,
         curr_depth: u8,
+        max_search: &mut [f32; 4],
     ) {
-        start_board.adjusted_score = 0.0;
         let who = start_board.who_moves;
-        let mut max_search = [if who == White {
-            f32::NEG_INFINITY
-        } else {
-            f32::INFINITY
-        }; 4];
+
         while let Some(curr_move) = moves.pop() {
             let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
             unsafe {
                 PSBCOUNT += 1;
             }
+
             let average_scoring_duration = self.scoring_timings.calc_average() * 40;
-            let curr_score = if average_scoring_duration < single_move_deadline || look_ahead {
+            let curr_score = if average_scoring_duration < single_move_deadline {
                 let (_, best_score) = self.best_move_for_internal(
                     &mut board_with_move,
                     &single_move_deadline,
                     false,
                     curr_depth + 1,
                 );
+
                 best_score
             } else {
                 board_with_move.score
             };
+
             if who == White {
                 max_search.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
                 for (idx, a_good_score) in max_search.iter().enumerate() {
@@ -257,15 +256,43 @@ impl Engine {
                     }
                 }
             }
-            if look_ahead {
-                println!(
-                    "{} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                    (0..curr_depth).map(|_| " ").collect::<String>(),
-                    board_with_move.score,
-                    board_with_move.adjusted_score
-                );
-            }
+
             start_board.continuation.insert(curr_move, board_with_move);
+        }
+    }
+
+    fn countdown(
+        &mut self,
+        mut moves: Vec<PossibleMove>,
+        start_board: &mut PSBoard,
+        single_move_deadline: Duration,
+        look_ahead: bool,
+        curr_depth: u8,
+    ) {
+        start_board.adjusted_score = 0.0;
+        let who = start_board.who_moves;
+        let mut max_search = [if who == White {
+            f32::NEG_INFINITY
+        } else {
+            f32::INFINITY
+        }; 4];
+
+        if look_ahead {
+            self.countdown_with_look_ahead(
+                moves,
+                start_board,
+                single_move_deadline,
+                curr_depth,
+                &mut max_search,
+            )
+        } else {
+            self.countdown_without_lookahead(
+                moves,
+                start_board,
+                single_move_deadline,
+                curr_depth,
+                &mut max_search,
+            )
         }
         max_search.sort_unstable_by(if who == White {
             |a: &f32, b: &f32| a.partial_cmp(b).unwrap()
@@ -288,6 +315,72 @@ impl Engine {
                 .sum::<f32>())
             / 17f32; // sum of all weights + 1 for the start_board's base score.
         self.move_cache.release(moves);
+    }
+
+    fn countdown_with_look_ahead(
+        &mut self,
+        mut moves: Vec<PossibleMove>,
+        start_board: &mut PSBoard,
+        single_move_deadline: Duration,
+        curr_depth: u8,
+        max_search: &mut [f32; 4],
+    ) {
+        let s_mutex = Arc::new(Mutex::new(self));
+
+        let who = start_board.who_moves;
+
+        let joins = Vec::new();
+
+        while let Some(curr_move) = moves.pop() {
+            let join_a = thread::spawn(move || {
+                let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
+                unsafe {
+                    PSBCOUNT += 1;
+                }
+
+                let (_, curr_score) = self.best_move_for_internal(
+                    &mut board_with_move,
+                    &single_move_deadline,
+                    false,
+                    curr_depth + 1,
+                );
+
+                (curr_score, board_with_move, curr_move)
+            });
+
+            joins.push(join_a);
+        }
+
+        for join in joins {
+            let (curr_score, board_with_move, curr_move) = join.join().unwrap();
+
+            if who == White {
+                max_search.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                for (idx, a_good_score) in max_search.iter().enumerate() {
+                    if *a_good_score < curr_score {
+                        max_search[idx] = curr_score;
+                        break;
+                    }
+                }
+            } else {
+                max_search.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
+                for (idx, a_good_score) in max_search.iter().enumerate() {
+                    if *a_good_score > curr_score {
+                        max_search[idx] = curr_score;
+                        break;
+                    }
+                }
+            }
+
+            println!(
+                "{} Evaluated move: {curr_move}, score: {}, adjusted: {}",
+                (0..curr_depth).map(|_| " ").collect::<String>(),
+                board_with_move.score,
+                board_with_move.adjusted_score
+            );
+
+            start_board.continuation.insert(curr_move, board_with_move);
+        }
     }
 }
 
