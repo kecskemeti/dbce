@@ -278,10 +278,11 @@ impl PSBoard {
     ///
     /// ```
     /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::board_rep::BoardPos;
     /// let board = PSBoard::default();
     /// let mut moves = Vec::new();
     /// board.gen_potential_moves(true, &mut moves);
-    /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==(0,1)&&m.the_move.to==(2,2));
+    /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==BoardPos(0,1)&&m.the_move.to==BoardPos(2,2));
     /// assert!(van_geet_opening_found);
     /// ```
     pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
@@ -479,7 +480,7 @@ mod test {
     #[test]
     fn failed_game_1() {
         let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
-        let (mut engine, mut gamestate) =
+        let (engine, mut gamestate) =
             Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
 
         gamestate.make_a_human_move("Rc1+").unwrap();
@@ -496,7 +497,7 @@ mod test {
     #[test]
     fn failed_game_2() {
         let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
-        let (mut engine, mut gamestate) =
+        let (engine, mut gamestate) =
             Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
 
         gamestate.make_a_human_move("Qxf6+").unwrap();
@@ -520,7 +521,7 @@ mod test {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
         );
-        let (mut engine, mut gamestate) =
+        let (engine, mut gamestate) =
             Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
 
         gamestate.make_a_human_move("Qg7+").unwrap();
@@ -536,7 +537,7 @@ mod test {
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
     #[test]
     fn failed_game_4() {
-        let (mut engine, mut gamestate) =
+        let (engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
         engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
@@ -572,7 +573,7 @@ mod test {
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
     #[test]
     fn failed_game_4_subtest() {
-        let (mut engine, mut gamestate) =
+        let (engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
         engine.best_move_for(&mut gamestate, &Duration::from_secs(1));
         println!("Depth: {}", find_max_depth(gamestate.get_board()));

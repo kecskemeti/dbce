@@ -21,16 +21,16 @@
  *  (C) Copyright 2022, Gabor Kecskemeti
  */
 
-use std::borrow::BorrowMut;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct DurationAverage {
-    measurements: Arc<Mutex<VecDeque<Duration>>>,
-    pub len: u32,
-    avg: Duration,
-    valid_avg: bool,
+    measurements: Arc<RwLock<VecDeque<Duration>>>,
+    len: u32,
+    avg: Arc<RwLock<Option<Duration>>>,
 }
 
 impl DurationAverage {
@@ -38,45 +38,53 @@ impl DurationAverage {
     where
         F: Fn() -> Duration,
     {
-        let measurements = Arc::new(Mutex::new(
+        let measurements = Arc::new(RwLock::new(
             (1..len).map(|_| repeatable_measurement()).collect(),
         ));
-        let avg = DurationAverage::calc_internal(&measurements, len);
+        let precalculated_avg = DurationAverage::calc_internal(&measurements, len);
         DurationAverage {
             measurements,
             len,
-            avg,
-            valid_avg: true,
+            avg: Arc::new(RwLock::new(Some(precalculated_avg))),
         }
     }
 
-    /// # Panics
-    /// If the measurement mutex cannot be acquired  
-    pub fn add(&mut self, new: Duration) {
-        let mut timing_data = self.measurements.borrow_mut().lock().unwrap();
-        timing_data.pop_front();
-        timing_data.push_back(new);
-        self.valid_avg = false;
-    }
-
-    pub fn calc_average(&mut self) -> Duration {
-        if self.valid_avg {
-            self.avg
-        } else {
-            self.valid_avg = true;
-            DurationAverage::calc_internal(&self.measurements, self.len)
+    pub fn add(&self, new: Duration) {
+        {
+            let mut timing_data = self.measurements.write();
+            timing_data.pop_front();
+            timing_data.push_back(new);
         }
+        let mut avg = self.avg.write();
+        *avg = None;
     }
 
-    fn calc_internal(timing_data: &Arc<Mutex<VecDeque<Duration>>>, len: u32) -> Duration {
-        let timing_data = timing_data.lock().unwrap();
+    pub fn calc_average(&self) -> Duration {
+        {
+            if let Some(avg) = *self.avg.read() {
+                return avg;
+            }
+        }
+        let mut avg = self.avg.write();
+        *avg = Some(DurationAverage::calc_internal(&self.measurements, self.len));
+        avg.unwrap()
+    }
+
+    fn calc_internal(timing_data: &Arc<RwLock<VecDeque<Duration>>>, len: u32) -> Duration {
+        let timing_data = timing_data.read();
         let all_duration: Duration = timing_data.iter().sum();
         all_duration / len
     }
+
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self.len
+    }
 }
 
+#[derive(Clone)]
 pub struct VecCache<T> {
-    cache: Arc<Mutex<Vec<Vec<T>>>>,
+    cache: Arc<RwLock<Vec<Vec<T>>>>,
 }
 
 impl<T> Default for VecCache<T> {
@@ -88,25 +96,16 @@ impl<T> Default for VecCache<T> {
 impl<T> VecCache<T> {
     pub fn new() -> VecCache<T> {
         VecCache {
-            cache: Arc::new(Mutex::new(Vec::new())),
+            cache: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
-    /// # Panics
-    /// If the backing cache's mutex cannot be acquired
-    pub fn get(&mut self) -> Vec<T> {
-        self.cache
-            .borrow_mut()
-            .lock()
-            .unwrap()
-            .pop()
-            .unwrap_or_default()
+    pub fn get(&self) -> Vec<T> {
+        self.cache.write().pop().unwrap_or_default()
     }
 
-    /// # Panics
-    /// If the backing cache's mutex cannot be acquired
-    pub fn release(&mut self, mut cached: Vec<T>) {
+    pub fn release(&self, mut cached: Vec<T>) {
         cached.clear();
-        self.cache.borrow_mut().lock().unwrap().push(cached)
+        self.cache.write().push(cached)
     }
 }

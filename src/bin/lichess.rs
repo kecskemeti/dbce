@@ -53,7 +53,7 @@ async fn play_a_game(
     let mut toignore = None;
     let mut impossiblemove = None;
     let (mut engine, mut state) = Engine::new();
-    let mut lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
+    let lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
     while let Some(Ok(bytes)) = resp.next().await {
         let start = Instant::now();
         if let Ok(gamestate) = serde_json::from_slice(&bytes) {

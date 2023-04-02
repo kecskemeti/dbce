@@ -35,7 +35,7 @@ impl RawBoard {
     #[inline]
     pub fn set_loc(&mut self, BoardPos(row, col): BoardPos, piece: &Option<PieceState>) {
         let shift_amount = col << 2;
-        let piece_mask = !((0b1111 as u32) << shift_amount);
+        let piece_mask = !(0b1111 << shift_amount);
         let us_row = row as usize;
         let a_row = self.0[us_row] & piece_mask;
         let a_bit_piece = (PieceState::bits(piece) as u32) << shift_amount;
@@ -105,6 +105,7 @@ impl<'a> ExactSizeIterator for RawBoardIterator<'a> {}
 mod test {
     use crate::baserules::board::PSBoard;
     use crate::baserules::board_rep::BoardPos;
+    use std::str::FromStr;
 
     #[test]
     fn iterator_test() {

@@ -33,8 +33,10 @@ use std::str::FromStr;
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
 pub struct BoardPos(pub i8, pub i8);
 
-impl BoardPos {
-    pub fn from_str(coord: &str) -> Result<Self, Box<dyn Error>> {
+impl FromStr for BoardPos {
+    type Err = Box<dyn Error>;
+
+    fn from_str(coord: &str) -> Result<Self, Self::Err> {
         Ok(BoardPos(
             i8::from_str(&coord[1..2])? - 1,
             (coord.as_bytes()[0] - b'a') as i8,
@@ -52,12 +54,13 @@ pub struct BaseMove {
 }
 
 impl BaseMove {
-    fn to_u32(&self) -> u32 {
+    fn to_u32(self) -> u32 {
         (self.from.0 as u32) << 24
             | (self.from.1 as u32) << 16
             | (self.to.0 as u32) << 8
             | self.to.1 as u32
     }
+
     pub fn from_two_pos(from: BoardPos, to: BoardPos) -> Self {
         BaseMove { from, to }
     }

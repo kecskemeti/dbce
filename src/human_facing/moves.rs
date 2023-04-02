@@ -240,3 +240,20 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, 
         }
     }))
 }
+
+#[cfg(test)]
+mod test {
+    use crate::baserules::board::PSBoard;
+    use crate::human_facing::moves::make_a_human_move;
+
+    #[test]
+    fn test_rook_takes() {
+        let mut board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30");
+        let result = make_a_human_move(&mut board, "Rcxc8");
+        assert!(result.is_some());
+        assert_eq!(
+            "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
+            result.unwrap().to_fen()
+        );
+    }
+}

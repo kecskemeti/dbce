@@ -21,11 +21,11 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::board::{PSBoard, PSBCOUNT};
+use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::engine::{Engine, GameState};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -45,9 +45,6 @@ pub fn calculate_move_for_console(
 ) -> (Duration, (Option<PossibleMove>, f32)) {
     println!("Set a deadline of: {deadline:?}");
     let ins = Instant::now();
-    unsafe {
-        PSBCOUNT = 0;
-    }
     let machine_eval = engine.best_move_for(gamestate, deadline);
     let machine_move = machine_eval.0.as_ref().unwrap();
     let taken_this_much_time = ins.elapsed();
@@ -55,29 +52,27 @@ pub fn calculate_move_for_console(
     // visualise_explored_moves(gamestate.get_board());
     println!("Went to depth {}", find_max_depth(gamestate.get_board()));
     println!("Move took {} ms", taken_this_much_time_ms);
-    unsafe {
-        println!(
-            "{} kNodes/sec",
-            u128::from(PSBCOUNT) / 1.max(taken_this_much_time_ms)
-        );
-    }
+    println!(
+        "{} kNodes/sec",
+        u128::from(machine_eval.2) / 1.max(taken_this_much_time_ms)
+    );
     println!(
         "Evaluation result: {machine_move:?}, score: {}",
         machine_eval.1
     );
-    (taken_this_much_time, machine_eval)
+    (taken_this_much_time, (machine_eval.0, machine_eval.1))
 }
 
 pub fn find_max_depth(of_board: &PSBoard) -> u8 {
     let max = Mutex::new(0);
     internal_depth(of_board, 0, &max);
-    let final_max = max.lock().unwrap();
+    let final_max = max.lock();
     *final_max
 }
 
 fn internal_depth(of_board: &PSBoard, curr_depth: u8, max: &Mutex<u8>) {
     {
-        let mut int_mutex = max.lock().unwrap();
+        let mut int_mutex = max.lock();
         if curr_depth > *int_mutex {
             *int_mutex = curr_depth;
         }

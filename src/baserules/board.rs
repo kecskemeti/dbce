@@ -37,8 +37,6 @@ use std::collections::BTreeMap;
 
 pub static MATE: f32 = 1000.0;
 
-pub static mut PSBCOUNT: u32 = 0;
-
 #[derive(EnumSetType, Debug)]
 pub enum Castling {
     WhiteKingSide,
@@ -167,7 +165,7 @@ impl PSBoard {
         } else {
             // This is an unexpected move, or part of pre-calculation
             let mut raw_board = self.board;
-            let previous_piece = self.get_loc(the_move.the_move.to);
+            let piece_potentially_taken = self.get_loc(the_move.the_move.to);
             {
                 if let Some(ep) = &self.ep {
                     let current_piece = &self.get_loc(the_move.the_move.from).unwrap();
@@ -184,7 +182,8 @@ impl PSBoard {
                 }
             }
             // The move for almost all the cases
-            raw_board.set_loc(the_move.the_move.to, self.get_loc(the_move.the_move.from));
+            let piece_before_move = self.get_loc(the_move.the_move.from);
+            raw_board.set_loc(the_move.the_move.to, piece_before_move);
             if let Some(promotion) = &the_move.pawn_promotion {
                 //When we need to convert a pawn to something
                 let piece = raw_board[the_move.the_move.to]
@@ -216,8 +215,18 @@ impl PSBoard {
                 } else {
                     None
                 },
-                castling: self.determine_castling_rights(&current_piece, the_move, &previous_piece),
-                half_moves_since_pawn: self.half_moves_since_pawn + 1,
+                castling: self.determine_castling_rights(
+                    &current_piece,
+                    the_move,
+                    piece_potentially_taken,
+                ),
+                half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
+                    0
+                } else if piece_potentially_taken.is_some() {
+                    0
+                } else {
+                    self.half_moves_since_pawn + 1
+                },
                 move_count: self.move_count + u16::from(current_piece.color == Black),
                 continuation: BTreeMap::new(),
             }
@@ -230,7 +239,7 @@ impl PSBoard {
         the_move: &PossibleMove,
         possible_capture: &Option<PieceState>,
     ) -> EnumSet<Castling> {
-        let mut new_castling = self.castling.clone();
+        let mut new_castling = self.castling;
         if !self.castling.is_empty() {
             if current_piece.kind == King {
                 new_castling ^= if current_piece.color == White {
@@ -358,6 +367,7 @@ mod test {
     use crate::baserules::piece_kind::PieceKind::{King, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
     use enumset::enum_set;
+    use std::str::FromStr;
 
     #[test]
     fn check_castling_when_rook_taken() {
