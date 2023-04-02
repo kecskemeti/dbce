@@ -21,9 +21,8 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::piece_color::PieceColor;
-use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
+use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
@@ -31,57 +30,15 @@ use std::str::FromStr;
 /// Used to represent the board position
 /// For example: square a1 = (0,0), square h8 (7,7)
 /// Also used to represent relative locations on the board (hence the signedness)
-pub type BoardPos = (i8, i8);
+#[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
+pub struct BoardPos(pub i8, pub i8);
 
-/// Represents the pieces that can be placed on the board
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct PieceState {
-    pub kind: PieceKind,
-    pub color: PieceColor,
-}
-
-impl Display for PieceState {
-    /// Turns piece state to FEN notation
-    ///
-    /// # Example:
-    /// ```
-    /// use dbce::baserules::board_rep::PieceState;
-    /// use dbce::baserules::piece_color::PieceColor::White;
-    /// use dbce::baserules::piece_kind::PieceKind::King;
-    /// let white_king = PieceState {color: White, kind: King };
-    /// assert_eq!("K", format!("{white_king}"))
-    /// ```
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let uppercase_if_needed: fn(char) -> char = if self.color == White {
-            |m| (m as u8 - (b'a' - b'A')) as char
-        } else {
-            |m| m
-        };
-        let res = uppercase_if_needed(self.kind.to_char());
-        write!(f, "{res}")
-    }
-}
-
-impl PieceState {
-    /// Turns a single letter FEN notation to a piece state
-    ///
-    /// # Example:
-    /// ```
-    /// use dbce::baserules::board_rep::PieceState;
-    /// use dbce::baserules::piece_color::PieceColor::White;
-    /// use dbce::baserules::piece_kind::PieceKind::King;
-    /// let white_king = PieceState {color: White, kind: King };
-    /// assert_eq!(PieceState::from_char('K'),white_king);
-    /// ```
-    pub fn from_char(fen_piece: char) -> PieceState {
-        PieceState {
-            kind: PieceKind::from_char(fen_piece),
-            color: if fen_piece.is_ascii_lowercase() {
-                Black
-            } else {
-                White
-            },
-        }
+impl BoardPos {
+    pub fn from_str(coord: &str) -> Result<Self, Box<dyn Error>> {
+        Ok(BoardPos(
+            i8::from_str(&coord[1..2])? - 1,
+            (coord.as_bytes()[0] - b'a') as i8,
+        ))
     }
 }
 
@@ -95,7 +52,13 @@ pub struct BaseMove {
 }
 
 impl BaseMove {
-    pub fn from_two_pos(from: BoardPos, to: BoardPos) -> BaseMove {
+    fn to_u32(&self) -> u32 {
+        (self.from.0 as u32) << 24
+            | (self.from.1 as u32) << 16
+            | (self.to.0 as u32) << 8
+            | self.to.1 as u32
+    }
+    pub fn from_two_pos(from: BoardPos, to: BoardPos) -> Self {
         BaseMove { from, to }
     }
 
@@ -103,25 +66,19 @@ impl BaseMove {
     ///
     /// # Example
     /// ```
-    /// use dbce::baserules::board_rep::BaseMove;
+    /// use dbce::baserules::board_rep::{BaseMove, BoardPos};
     /// let rook_a3 = BaseMove {
-    ///     from: (0,0),
-    ///     to: (2,0)
+    ///     from: BoardPos(0,0),
+    ///     to: BoardPos(2,0)
     /// };
     /// let potential_parsed_rook_move = BaseMove::from_uci("a1a3");
     /// assert!(potential_parsed_rook_move.is_ok());
     /// assert_eq!(rook_a3, potential_parsed_rook_move.unwrap());
     /// ```
-    pub fn from_uci(uci: &str) -> Result<BaseMove, Box<dyn Error>> {
-        Ok(BaseMove {
-            from: (
-                i8::from_str(&uci[1..2])? - 1,
-                (uci.as_bytes()[0] - b'a') as i8,
-            ),
-            to: (
-                i8::from_str(&uci[3..4])? - 1,
-                (uci.as_bytes()[2] - b'a') as i8,
-            ),
+    pub fn from_uci(uci: &str) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            from: BoardPos::from_str(&uci[0..2])?,
+            to: BoardPos::from_str(&uci[2..4])?,
         })
     }
 }
@@ -134,6 +91,30 @@ pub struct PossibleMove {
     pub pawn_promotion: Option<PieceKind>,
     /// If we have castling, then the rook also has to move alongside the king, the `BaseMove` is representing the king, here we represent the rook move
     pub rook: Option<BaseMove>,
+}
+
+impl PartialOrd<Self> for PossibleMove {
+    fn partial_cmp(&self, _: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl Ord for PossibleMove {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.the_move.to_u32().cmp(&other.the_move.to_u32())
+    }
+
+    fn max(self, _: Self) -> Self {
+        todo!()
+    }
+
+    fn min(self, _: Self) -> Self {
+        todo!()
+    }
+
+    fn clamp(self, _: Self, _: Self) -> Self {
+        todo!()
+    }
 }
 
 impl PossibleMove {
@@ -171,8 +152,8 @@ impl Default for PossibleMove {
     fn default() -> Self {
         PossibleMove {
             the_move: BaseMove {
-                from: (0, 0),
-                to: (1, 0),
+                from: BoardPos(0, 0),
+                to: BoardPos(1, 0),
             },
             pawn_promotion: None,
             rook: None,
@@ -184,9 +165,9 @@ impl Display for PossibleMove {
     /// Produces moves in uci notation
     /// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
     /// ```
-    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// use dbce::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
     /// let rook_lift = PossibleMove {
-    ///     the_move: BaseMove { from: (0,0), to: (2,0)},
+    ///     the_move: BaseMove { from: BoardPos(0,0), to: BoardPos(2,0)},
     ///     pawn_promotion: None,
     ///     rook: None,
     /// };
@@ -214,9 +195,10 @@ impl Debug for PossibleMove {
 
 #[cfg(test)]
 mod test {
-    use crate::baserules::board_rep::{BaseMove, PieceState, PossibleMove};
+    use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
     use crate::baserules::piece_color::PieceColor::{Black, White};
     use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
+    use crate::baserules::piece_state::PieceState;
 
     #[test]
     fn pstest() {
@@ -252,27 +234,27 @@ mod test {
     fn ucitest() {
         let pawn_promote = PossibleMove {
             the_move: BaseMove {
-                from: (1, 1),
-                to: (0, 1),
+                from: BoardPos(1, 1),
+                to: BoardPos(0, 1),
             },
             pawn_promotion: Some(Queen),
             rook: None,
         };
         let black_short_castles = PossibleMove {
             the_move: BaseMove {
-                from: (7, 3),
-                to: (7, 1),
+                from: BoardPos(7, 3),
+                to: BoardPos(7, 1),
             },
             pawn_promotion: None,
             rook: Some(BaseMove {
-                from: (7, 0),
-                to: (7, 2),
+                from: BoardPos(7, 0),
+                to: BoardPos(7, 2),
             }),
         };
         let knight_moves = PossibleMove {
             the_move: BaseMove {
-                from: (7, 6),
-                to: (5, 5),
+                from: BoardPos(7, 6),
+                to: BoardPos(5, 5),
             },
             pawn_promotion: None,
             rook: None,

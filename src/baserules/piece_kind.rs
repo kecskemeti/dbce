@@ -21,12 +21,13 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 use crate::baserules::board_rep::BoardPos;
+use enum_iterator::{all, Sequence};
 use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
 use PieceKind::*;
 
 /// All chess piece types
-#[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, Enum)]
+#[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, Enum, Sequence)]
 pub enum PieceKind {
     King,
     Queen,
@@ -62,27 +63,27 @@ lazy_static! {
     /// For kings and knights it is all possible relative moves compared to their current square
     /// For bishops, rooks and queens it is listing directional vectors that point towards the pieces possible future positions achievable in a single step
     static ref PIECE_MOVES: EnumMap<PieceKind, Vec<BoardPos>> = enum_map! {
-        Bishop => vec![(-1, -1), (1, 1), (-1, 1), (1, -1)],
-        Rook => vec![(-1, 0), (1, 0), (0, 1), (0, -1)],
+        Bishop => vec![BoardPos(-1, -1), BoardPos(1, 1), BoardPos(-1, 1), BoardPos(1, -1)],
+        Rook => vec![BoardPos(-1, 0), BoardPos(1, 0), BoardPos(0, 1), BoardPos(0, -1)],
         Knight => vec![
-            (-1, -2),
-            (-1, 2),
-            (-2, -1),
-            (-2, 1),
-            (1, -2),
-            (1, 2),
-            (2, -1),
-            (2, 1),
+           BoardPos(-1, -2),
+            BoardPos(-1, 2),
+            BoardPos(-2, -1),
+           BoardPos (-2, 1),
+            BoardPos(1, -2),
+           BoardPos (1, 2),
+           BoardPos (2, -1),
+            BoardPos(2, 1),
         ],
         King | Queen => vec![
-        (-1, -1),
-        (1, 1),
-        (-1, 1),
-        (1, -1),
-        (-1, 0),
-        (1, 0),
-        (0, 1),
-        (0, -1),
+        BoardPos(-1, -1),
+       BoardPos (1, 1),
+        BoardPos(-1, 1),
+       BoardPos (1, -1),
+        BoardPos(-1, 0),
+        BoardPos(1, 0),
+        BoardPos(0, 1),
+       BoardPos (0, -1),
         ],
         Pawn => Vec::new(),
     };
@@ -94,6 +95,20 @@ lazy_static! {
             Rook => 'r',
             Pawn => 'p',
     };
+    static ref PIECE_ORD: EnumMap<PieceKind, u8> = enum_map! {
+            King => 1,
+            Queen => 2,
+            Bishop => 3,
+            Knight => 4,
+            Rook => 5,
+            Pawn => 6,
+    };
+    static ref U8_PIECE_MAP: [Option<PieceKind>; 7] = {
+        let mut ret = [None; 7];
+        all::<PieceKind>().for_each(|k| ret[PIECE_ORD[k] as usize]=Some(k));
+        ret
+    };
+
 }
 
 impl PieceKind {
@@ -114,12 +129,26 @@ impl PieceKind {
             .unwrap_or_else(|_| panic!("Unmappable character received: {piece}"));
         CHAR_PIECE_MAP[idx].expect("Unexpected chess piece type")
     }
+
     /// Converts a piece type back to a character form usable for chess notation
+    #[inline]
     pub fn to_char(self) -> char {
         PIECE_CHARS[self]
     }
+
     /// Allows querying the kinds of moves we can make with a particular piece. Note pawn moves are handled differently as they depend on the colour and state of the pawn
+    #[inline]
     pub fn vec_moves(self) -> &'static Vec<BoardPos> {
         &PIECE_MOVES[self]
+    }
+
+    #[inline]
+    pub fn from_u8(piece: u8) -> Option<PieceKind> {
+        U8_PIECE_MAP[(piece & 0b111) as usize]
+    }
+
+    #[inline]
+    pub fn to_u8(self) -> u8 {
+        PIECE_ORD[self]
     }
 }

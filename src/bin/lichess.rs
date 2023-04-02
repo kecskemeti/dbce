@@ -208,6 +208,23 @@ async fn lichess_api_call(client_op: RequestBuilder) -> Result<Response, Box<dyn
     Ok(resp)
 }
 
+async fn best_rating_on_lichess(
+    user: &str,
+    client: &Client,
+) -> Result<Option<u64>, Box<dyn Error>> {
+    let target_props: Value =
+        lichess_api_call(client.get(format!("https://lichess.org/api/user/{user}")))
+            .await?
+            .json()
+            .await?;
+    let user_performances = &target_props["perfs"];
+    static PERF_TYPES: [&str; 4] = ["ultraBullet", "blitz", "bullet", "rapid"];
+    Ok(PERF_TYPES
+        .iter()
+        .filter_map(|atype| user_performances[atype]["rating"].as_u64())
+        .max())
+}
+
 /*
 When running this bot, you first need to create a lichess bot account, then ask for an authorization
 token for it. After these you can just run this executable and let it play. It will respond to
@@ -242,6 +259,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let client = Client::builder().default_headers(headers).build().unwrap();
     let mut declining_bots = HashSet::new();
+
+    let bots_best = best_rating_on_lichess(botid, &client)
+        .await?
+        .unwrap_or(1500);
+    let bots_max_target = bots_best + 400;
+    println!("This bot will not challenge better rated bots than {bots_max_target}");
 
     let mut gameid = None;
     if resume.to_lowercase().starts_with('y') {
@@ -288,8 +311,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 bots.retain(|b| !b.eq(botid));
-                let target_bot = bots.swap_remove(thread_rng().gen_range(0..bots.len()));
-                static CHALLENGE_TIME_CONTROLS: [(&str, &str); 11] = [
+                let target_bot = loop {
+                    let target_bot_candidate =
+                        bots.swap_remove(thread_rng().gen_range(0..bots.len()));
+                    let best_rating =
+                        best_rating_on_lichess(&target_bot_candidate, &client).await?;
+                    if let Some(best) = best_rating {
+                        if best > bots_max_target {
+                            println!("Bot {target_bot_candidate} is too strong for us, its rating was found to be {best}");
+                            sleep(Duration::from_millis(500));
+                            continue;
+                        }
+                    }
+                    break target_bot_candidate;
+                };
+                static CHALLENGE_TIME_CONTROLS: [(&str, &str); 10] = [
                     ("600", "10"),
                     ("600", "0"),
                     ("300", "5"),
@@ -300,7 +336,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     ("60", "0"),
                     ("30", "1"),
                     ("30", "0"),
-                    ("15", "0"),
                 ];
                 let (current_limit, current_increment) = CHALLENGE_TIME_CONTROLS
                     [thread_rng().gen_range(0..CHALLENGE_TIME_CONTROLS.len())];
@@ -314,7 +349,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let post_req = client
                     .post(format!("https://lichess.org/api/challenge/{target_bot}"))
                     .form(&req_form);
-                println!("Challenging bot: {target_bot}");
+                println!("Challenging bot: {target_bot}, challenge details: {req_form:?}");
                 let resp = lichess_api_call(post_req).await?;
                 if !resp.status().is_success() {
                     let rsp_txt = resp.text().await?;

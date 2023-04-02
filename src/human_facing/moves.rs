@@ -21,7 +21,7 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 use crate::baserules::board::PSBoard;
-use crate::baserules::board_rep::{BaseMove, PossibleMove};
+use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor::White;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
@@ -49,26 +49,26 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
             //short
             internal_move = Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (castle_row, 4),
-                    to: (castle_row, 6),
+                    from: BoardPos(castle_row, 4),
+                    to: BoardPos(castle_row, 6),
                 },
                 pawn_promotion: None,
                 rook: Some(BaseMove {
-                    from: (castle_row, 7),
-                    to: (castle_row, 5),
+                    from: BoardPos(castle_row, 7),
+                    to: BoardPos(castle_row, 5),
                 }),
             });
         } else {
             //long
             internal_move = Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (castle_row, 4),
-                    to: (castle_row, 2),
+                    from: BoardPos(castle_row, 4),
+                    to: BoardPos(castle_row, 2),
                 },
                 pawn_promotion: None,
                 rook: Some(BaseMove {
-                    from: (castle_row, 0),
-                    to: (castle_row, 3),
+                    from: BoardPos(castle_row, 0),
+                    to: BoardPos(castle_row, 3),
                 }),
             });
         }
@@ -219,8 +219,8 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, 
         }
     } else {
         let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
-        let rook_from = (the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 });
-        let rook_to = (the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 });
+        let rook_from = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 });
+        let rook_to = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 });
         PossibleMove {
             the_move,
             pawn_promotion: None,

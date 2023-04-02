@@ -99,8 +99,8 @@ impl PSBoard {
             // Move is allowed by the rule, we generate it
             Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (row, col),
-                    to: (loc.0, loc.1),
+                    from: BoardPos(row, col),
+                    to: BoardPos(loc.0, loc.1),
                 },
                 pawn_promotion: None,
                 rook: None,
@@ -126,7 +126,7 @@ impl PSBoard {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| (m.0 + row, m.1 + col))
+                .map(|m| BoardPos(m.0 + row, m.1 + col))
                 .filter_map(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
@@ -148,7 +148,7 @@ impl PSBoard {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| (m.0 + row, m.1 + col))
+                .map(|m| BoardPos(m.0 + row, m.1 + col))
                 .map_while(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
@@ -161,67 +161,91 @@ impl PSBoard {
         vecs: I,
         out: &mut Vec<PossibleMove>,
     ) {
-        for (x, y) in vecs {
+        for BoardPos(x, y) in vecs {
             static DIRECTIONAL_MOVES: [[BoardPos; 7]; 9] = [
                 // this array is laid out so it is easy to map into it with the below formula using just the input coords
                 [
-                    (-1, -1),
-                    (-2, -2),
-                    (-3, -3),
-                    (-4, -4),
-                    (-5, -5),
-                    (-6, -6),
-                    (-7, -7),
+                    BoardPos(-1, -1),
+                    BoardPos(-2, -2),
+                    BoardPos(-3, -3),
+                    BoardPos(-4, -4),
+                    BoardPos(-5, -5),
+                    BoardPos(-6, -6),
+                    BoardPos(-7, -7),
                 ],
                 [
-                    (-1, 0),
-                    (-2, 0),
-                    (-3, 0),
-                    (-4, 0),
-                    (-5, 0),
-                    (-6, 0),
-                    (-7, 0),
+                    BoardPos(-1, 0),
+                    BoardPos(-2, 0),
+                    BoardPos(-3, 0),
+                    BoardPos(-4, 0),
+                    BoardPos(-5, 0),
+                    BoardPos(-6, 0),
+                    BoardPos(-7, 0),
                 ],
                 [
-                    (-1, 1),
-                    (-2, 2),
-                    (-3, 3),
-                    (-4, 4),
-                    (-5, 5),
-                    (-6, 6),
-                    (-7, 7),
+                    BoardPos(-1, 1),
+                    BoardPos(-2, 2),
+                    BoardPos(-3, 3),
+                    BoardPos(-4, 4),
+                    BoardPos(-5, 5),
+                    BoardPos(-6, 6),
+                    BoardPos(-7, 7),
                 ],
                 [
-                    (0, -1),
-                    (0, -2),
-                    (0, -3),
-                    (0, -4),
-                    (0, -5),
-                    (0, -6),
-                    (0, -7),
+                    BoardPos(0, -1),
+                    BoardPos(0, -2),
+                    BoardPos(0, -3),
+                    BoardPos(0, -4),
+                    BoardPos(0, -5),
+                    BoardPos(0, -6),
+                    BoardPos(0, -7),
                 ],
                 [
                     // filler to make the x-y mapping easier
-                    (0, 0),
-                    (0, 0),
-                    (0, 0),
-                    (0, 0),
-                    (0, 0),
-                    (0, 0),
-                    (0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
+                    BoardPos(0, 0),
                 ],
-                [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7)],
                 [
-                    (1, -1),
-                    (2, -2),
-                    (3, -3),
-                    (4, -4),
-                    (5, -5),
-                    (6, -6),
-                    (7, -7),
+                    BoardPos(0, 1),
+                    BoardPos(0, 2),
+                    BoardPos(0, 3),
+                    BoardPos(0, 4),
+                    BoardPos(0, 5),
+                    BoardPos(0, 6),
+                    BoardPos(0, 7),
                 ],
-                [(1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)],
-                [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7)],
+                [
+                    BoardPos(1, -1),
+                    BoardPos(2, -2),
+                    BoardPos(3, -3),
+                    BoardPos(4, -4),
+                    BoardPos(5, -5),
+                    BoardPos(6, -6),
+                    BoardPos(7, -7),
+                ],
+                [
+                    BoardPos(1, 0),
+                    BoardPos(2, 0),
+                    BoardPos(3, 0),
+                    BoardPos(4, 0),
+                    BoardPos(5, 0),
+                    BoardPos(6, 0),
+                    BoardPos(7, 0),
+                ],
+                [
+                    BoardPos(1, 1),
+                    BoardPos(2, 2),
+                    BoardPos(3, 3),
+                    BoardPos(4, 4),
+                    BoardPos(5, 5),
+                    BoardPos(6, 6),
+                    BoardPos(7, 7),
+                ],
             ];
             let a = DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
             let allow_next = RefCell::new(true);
@@ -270,16 +294,13 @@ impl PSBoard {
             PSBoard::gen_king_moves
         };
         self.board
-            .iter()
+            .into_iter()
             .enumerate()
-            .flat_map(|(ri, row)| {
-                row.iter()
-                    .enumerate()
-                    .map(move |(ci, ps)| (ri as i8, ci as i8, ps))
-            })
-            .filter_map(|(ri, ci, ps)| {
+            .filter_map(|(idx, ps)| {
                 if let Some(curr) = ps {
                     if curr.color == self.who_moves {
+                        let ri = (idx >> 3) as i8;
+                        let ci = (idx & 0b111) as i8;
                         return Some((
                             ri,
                             ci,
@@ -326,7 +347,7 @@ impl PSBoard {
                     if !self.castling.is_disjoint(*side) {
                         let mut castling_range_free = true;
                         for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
-                            castling_range_free &= self.get_loc((row, lc)).is_none();
+                            castling_range_free &= self.get_loc(BoardPos(row, lc)).is_none();
                             if !castling_range_free {
                                 continue 'outer;
                             }
@@ -355,13 +376,13 @@ impl PSBoard {
                                 // would not cross check
                                 the_moves.push(PossibleMove {
                                     the_move: BaseMove {
-                                        from: (row, col),
-                                        to: (row, CASTLING_MOVES[idx][0]),
+                                        from: BoardPos(row, col),
+                                        to: BoardPos(row, CASTLING_MOVES[idx][0]),
                                     },
                                     pawn_promotion: None,
                                     rook: Some(BaseMove {
-                                        from: (row, CASTLING_MOVES[idx][1]),
-                                        to: (row, CASTLING_MOVES[idx][2]),
+                                        from: BoardPos(row, CASTLING_MOVES[idx][1]),
+                                        to: BoardPos(row, CASTLING_MOVES[idx][2]),
                                     }),
                                 });
                             }
@@ -440,7 +461,7 @@ impl PSBoard {
         self.gen_moves_from_vecs(
             row,
             col,
-            self.get_loc((row, col)).unwrap().kind.vec_moves(),
+            self.get_loc(BoardPos(row, col)).unwrap().kind.vec_moves(),
             the_moves,
         );
     }

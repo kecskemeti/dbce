@@ -139,6 +139,10 @@ impl Engine {
         self.best_move_for_internal(&mut state.worked_on_board, deadline, true, 0)
     }
 
+    pub fn is_mate(score: f32) -> bool {
+        (score.abs() - MATE).abs() < 50.0
+    }
+
     // Determines the best move on the depth asked for
     // If the decide flag is passed, we will have the move generated, otherwise we just use this method for scoring
     fn best_move_for_internal(
@@ -154,7 +158,7 @@ impl Engine {
             Black => -1.0,
         };
 
-        if (start_board.score.abs() - MATE).abs() > 0.1 {
+        if !Engine::is_mate(start_board.score) {
             let mut moves = self.move_cache.get();
             assert_eq!(0, moves.len());
             start_board.gen_potential_moves(true, &mut moves);
@@ -218,7 +222,6 @@ impl Engine {
         max_search: &mut [f32; 4],
     ) {
         let who = start_board.who_moves;
-
         while let Some(curr_move) = moves.pop() {
             let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
             unsafe {
@@ -226,7 +229,9 @@ impl Engine {
             }
 
             let average_scoring_duration = self.scoring_timings.calc_average() * 40;
-            let curr_score = if average_scoring_duration < single_move_deadline {
+            let curr_score = if !Engine::is_mate(board_with_move.score)
+                && (average_scoring_duration < single_move_deadline || look_ahead)
+            {
                 let (_, best_score) = self.best_move_for_internal(
                     &mut board_with_move,
                     &single_move_deadline,
@@ -256,8 +261,15 @@ impl Engine {
                     }
                 }
             }
+            let mate_detected = Engine::is_mate(curr_score);
+            if !stored_a_mate || !mate_detected {
+                // We don't store all mates, just the first one we hit,
+                // this will allow the score eval to be correct in best_move_for_internal, but
+                // we save a lot of memory for all unnecessary continuations
 
-            start_board.continuation.insert(curr_move, board_with_move);
+                start_board.continuation.insert(curr_move, board_with_move);
+                stored_a_mate |= mate_detected;
+            }
         }
     }
 
@@ -415,11 +427,11 @@ mod test {
     fn weird_eval_2() {
         let (mut engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
-        let (best_move, _) = engine.best_move_for(&mut gamestate, &Duration::from_millis(100));
+        let (best_move, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(100));
         println!("{best_move:?}");
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
-        println!("{}", gamestate.worked_on_board.adjusted_score);
-        assert!(gamestate.worked_on_board.adjusted_score < -6.0);
+        println!("{}", score);
+        assert!(score < -6.0);
     }
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
@@ -469,5 +481,46 @@ mod test {
         assert!(!best
             .unwrap()
             .eq(&PossibleMove::simple_from_uci("b3f7").unwrap()));
+    }
+
+    /// Test for this game: https://lichess.org/5fa8V5PVXDEL
+    #[test]
+    fn weird_eval_5() {
+        let (mut engine, mut gamestate) =
+            Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26");
+        let (best, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(15000));
+        println!("Best move: {best:?} Eval: {score}");
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("Kc3").unwrap();
+        gamestate.make_a_human_move("Rxg2").unwrap();
+        let (best, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(5000));
+        println!("Best move: {best:?} Eval: {score}");
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("Rb1").unwrap();
+        gamestate.make_a_human_move("Rxh2").unwrap();
+        let (best, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(5000));
+        println!("Best move: {best:?} Eval: {score}");
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("Rb8").unwrap();
+        gamestate.make_a_human_move("Re8").unwrap();
+        let (best, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(5000));
+        println!("Best move: {best:?} Eval: {score}");
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        gamestate.make_a_human_move("Rcxc8").unwrap();
+        gamestate.make_a_human_move("Rh3+").unwrap();
+        let (best, score) = engine.best_move_for(&mut gamestate, &Duration::from_millis(5000));
+        println!("Best move: {best:?} Eval: {score}");
+        let acceptable_moves = [
+            PossibleMove::simple_from_uci("c3c2").unwrap(),
+            PossibleMove::simple_from_uci("c3d2").unwrap(),
+            PossibleMove::simple_from_uci("c3b2").unwrap(),
+            PossibleMove::simple_from_uci("c3c4").unwrap(),
+            PossibleMove::simple_from_uci("c3b4").unwrap(),
+        ];
+        println!("Depth: {}", find_max_depth(gamestate.get_board()));
+        let the_move = best.unwrap();
+        assert!(acceptable_moves
+            .iter()
+            .any(|acceptable| acceptable.eq(&the_move)));
     }
 }
