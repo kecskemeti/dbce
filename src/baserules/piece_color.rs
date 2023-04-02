@@ -25,7 +25,7 @@ use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
 use PieceColor::*;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Enum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Enum, Hash)]
 pub enum PieceColor {
     Black,
     White,
@@ -34,18 +34,18 @@ pub enum PieceColor {
 lazy_static! {
     /// Colour dependent directional pawn moves for pawns that have already taken their first move
     static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![(-1, 0)],
-        White => vec![(1, 0)]
+        Black => vec![BoardPos(-1, 0)],
+        White => vec![BoardPos(1, 0)]
     };
     /// Colour dependent directional pawn moves for pawns that have not moved yet
     static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![(-1, 0), (-2, 0)],
-        White => vec![(1, 0), (2, 0)]
+        Black => vec![BoardPos(-1, 0), BoardPos(-2, 0)],
+        White => vec![BoardPos(1, 0), BoardPos(2, 0)]
     };
     /// Colour dependent directional pawn moves for pawns that can take opponent pieces
     static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![(-1, 1), (-1, -1)],
-        White => vec![(1, 1), (1, -1)]
+        Black => vec![BoardPos(-1, 1), BoardPos(-1, -1)],
+        White => vec![BoardPos(1, 1), BoardPos(1, -1)]
     };
     /// Colour dependent row number to identify promotion squares
     static ref PAWN_PROMOTION_MAP: EnumMap<PieceColor, i8> = enum_map! {
@@ -84,5 +84,21 @@ impl PieceColor {
     #[inline]
     pub fn piece_row(self) -> i8 {
         PIECE_ROWS[self]
+    }
+    #[inline]
+    pub fn from_u8(colour: u8) -> Self {
+        if colour & 8 > 0 {
+            White
+        } else {
+            Black
+        }
+    }
+    #[inline]
+    pub fn add_to_u8(self, prepped: u8) -> u8 {
+        prepped
+            | match self {
+                White => 8,
+                Black => 0,
+            }
     }
 }

@@ -24,12 +24,14 @@ use crate::baserules::board::Castling::{
     BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
 };
 use crate::baserules::board::{Castling, PSBoard};
-use crate::baserules::board_rep::PieceState;
+use crate::baserules::board_rep::BoardPos;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
-use ahash::AHashMap;
+use crate::baserules::piece_state::PieceState;
+use crate::baserules::rawboard::RawBoard;
 use enumset::EnumSet;
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
 impl PieceState {
@@ -106,7 +108,7 @@ impl Display for PSBoard {
                 return_string.push_str(&format!(
                     "{}{}{}",
                     prefix,
-                    if let Some(ps) = &self.get_loc((row, col)) {
+                    if let Some(ps) = &self.get_loc(BoardPos(row, col)) {
                         format!("{}", ps.to_unicode()).pop().unwrap()
                     } else {
                         '-'
@@ -127,7 +129,7 @@ impl PSBoard {
     /// # Panics
     /// When the input string is an incorrect fen
     pub fn from_fen(fen: &str) -> PSBoard {
-        let mut raw = [[None; 8]; 8];
+        let mut raw = RawBoard::empty();
         let mut next_move = None;
         let mut castling = EnumSet::empty();
         let mut ep = None;
@@ -136,11 +138,11 @@ impl PSBoard {
         for (idx, fen_part) in fen.split_whitespace().enumerate() {
             match idx {
                 0 => {
-                    let mut row = 7usize;
-                    let mut col = 0usize;
+                    let mut row = 7;
+                    let mut col = 0;
                     for piece_info in fen_part.chars() {
                         if piece_info.is_ascii_digit() {
-                            col += (piece_info as u8 - b'0') as usize;
+                            col += piece_info as i8 - b'0' as i8;
                         } else if piece_info == '/' {
                             col = 0;
                             assert_ne!(row, 0, "Should not have more rows on the chessboard!");
@@ -152,7 +154,7 @@ impl PSBoard {
                                 Black
                             };
                             let kind = PieceKind::from_char(piece_info);
-                            raw[row][col] = Some(PieceState { kind, color });
+                            raw.set_loc(BoardPos(row, col), &Some(PieceState { kind, color }));
                             col += 1;
                         }
                     }
@@ -181,7 +183,7 @@ impl PSBoard {
                     let mut fen_chars = fen_part.chars();
                     let first_char = fen_chars.next().unwrap();
                     if first_char != '-' {
-                        ep = Some((
+                        ep = Some(BoardPos(
                             first_char as i8 - 'a' as i8,
                             fen_chars.next().unwrap() as i8 - '1' as i8,
                         ));
@@ -215,7 +217,7 @@ impl PSBoard {
             } else {
                 panic!("Unspecified half move count")
             },
-            continuation: AHashMap::new(),
+            continuation: BTreeMap::new(),
         }
     }
 
@@ -226,10 +228,10 @@ impl PSBoard {
     pub fn to_fen(&self) -> String {
         let mut ret = String::new();
         let mut since_piece: u8;
-        for row in self.board.iter().rev() {
+        for row in (0..8).rev() {
             since_piece = 0;
-            for col in row.iter() {
-                if let Some(ps) = col {
+            for col in 0..8 {
+                if let Some(ps) = self.board[BoardPos(row, col)] {
                     if since_piece != 0 {
                         ret.push((since_piece + b'0') as char);
                     }
@@ -270,7 +272,7 @@ impl PSBoard {
             );
         }
         ret.push(' ');
-        if let Some((row, col)) = &self.ep {
+        if let Some(BoardPos(row, col)) = &self.ep {
             ret.push((*col as u8 + b'a') as char);
             ret.push((*row as u8 + b'1') as char);
         } else {

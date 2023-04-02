@@ -18,7 +18,7 @@ A simple chess bot written in Rust integrated with its own [Lichess](https://lic
     * It will challenge for all kinds of time controls from ultra bullet to rapid, with and without time increment.
     * The bot will try to adjust its depth of search based on its remaining time.
     * **WARNING**: you will need plenty of memory to run this current version if it goes beyond particular depths. At
-      the moment, it needs around 40GiB for a 2.5 move look ahead.
+      the moment, it needs around 10-15GiB for a 2.5 move look ahead.
 * To experiment with the bot locally, run: `target/release/local`
     * This can also be done by running `cargo run --bin local`
     * Here the machine will play against you on the console. Make sure you run it on a console with unicode character
