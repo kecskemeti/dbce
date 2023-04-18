@@ -26,20 +26,22 @@ use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
 use crate::util::{DurationAverage, VecCache};
-use parking_lot::RwLock;
 use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::error::Error;
-use std::sync::Arc;
+use std::ptr;
+// use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{self, Sender};
+
+use std::thread;
 use std::time::Duration;
-use std::{ptr, thread};
 use tokio::time::Instant;
 
 #[derive(Clone)]
 pub struct Engine {
     move_cache: VecCache<PossibleMove>,
     scoring_timings: DurationAverage,
-    board_count: Arc<RwLock<u32>>,
 }
 
 pub struct GameState {
@@ -67,6 +69,22 @@ impl GameState {
     }
 }
 
+#[derive(Clone)]
+pub struct A {
+    moves: Vec<PossibleMove>,
+    start_board: PSBoard,
+    single_move_deadline: Duration,
+    curr_depth: u8,
+    max_search: [f32; 4],
+    tx: Sender<bool>,
+}
+
+pub struct B {
+    moves: Vec<PossibleMove>,
+    max_search: [f32; 4],
+    continuation: BTreeMap<PossibleMove, PSBoard>,
+}
+
 impl Engine {
     pub fn new() -> (Engine, GameState) {
         Engine::with_board_gen(PSBoard::default)
@@ -88,7 +106,6 @@ impl Engine {
             Engine {
                 move_cache: VecCache::new(),
                 scoring_timings,
-                board_count: Arc::new(RwLock::new(0)),
             },
             GameState {
                 worked_on_board: initial_board_provider(),
@@ -96,17 +113,19 @@ impl Engine {
         )
     }
 
-    fn timed_move(board: &mut PSBoard, amove: &PossibleMove) -> (PSBoard, Duration) {
+    fn timed_move(board: &PSBoard, amove: &PossibleMove) -> (PSBoard, Duration) {
         let pre = Instant::now();
-        (board.make_a_move(amove), pre.elapsed())
+        (board.make_move_noncached(amove), pre.elapsed())
     }
 
-    fn timing_remembering_move(&self, board: &mut PSBoard, amove: &PossibleMove) -> PSBoard {
+    fn timing_remembering_move(
+        &self,
+        board: &PSBoard,
+        amove: &PossibleMove,
+        tx: Sender<bool>,
+    ) -> PSBoard {
         let (ret, dur) = Engine::timed_move(board, amove);
-        {
-            let mut board_count = self.board_count.write();
-            *board_count += 1;
-        }
+        tx.send(true);
         self.scoring_timings.add(dur);
         ret
     }
@@ -140,23 +159,31 @@ impl Engine {
             .unwrap()
     }
 
+    // board count send instead of lock
     pub fn best_move_for(
         &self,
         state: &mut GameState,
         deadline: &Duration,
     ) -> (Option<PossibleMove>, f32, u32) {
-        {
-            let mut board_count = self.board_count.write();
-            *board_count = 0;
-        }
+        let (tx, rx) = mpsc::channel();
+
         let (best_move, score) = self.best_move_for_internal(
             &mut state.worked_on_board,
             deadline,
             Engine::countdown_with_look_ahead,
             0,
+            tx.clone(),
         );
-        let board_count_after = self.board_count.read();
-        (best_move, score, *board_count_after)
+
+        tx.send(false);
+
+        // best move internal is done get result back
+        let mut board_count = 0;
+        // thread waits for count result
+        while rx.recv().unwrap() {
+            board_count += 1;
+        }
+        (best_move, score, board_count)
     }
 
     pub fn is_mate(score: f32) -> bool {
@@ -171,16 +198,10 @@ impl Engine {
         deadline: &Duration,
         look_ahead_method: F,
         curr_depth: u8,
+        sender: Sender<bool>,
     ) -> (Option<PossibleMove>, f32)
     where
-        F: Fn(
-            &Self,
-            Vec<PossibleMove>,
-            &mut PSBoard,
-            Duration,
-            u8,
-            &mut [f32],
-        ) -> Vec<PossibleMove>,
+        F: Fn(&Self, A) -> B,
     {
         let mut ret = (None, start_board.score);
         let mate_multiplier = match start_board.who_moves {
@@ -205,6 +226,7 @@ impl Engine {
                 single_move_deadline,
                 look_ahead_method,
                 curr_depth,
+                sender,
             );
 
             let best_potential_board = start_board.continuation.values().max_by(|b1, b2| {
@@ -243,34 +265,29 @@ impl Engine {
         ret
     }
 
-    fn countdown_without_lookahead(
-        &self,
-        mut moves: Vec<PossibleMove>,
-        start_board: &mut PSBoard,
-        single_move_deadline: Duration,
-        curr_depth: u8,
-        max_search: &mut [f32],
-    ) -> Vec<PossibleMove> {
-        let who = start_board.who_moves;
+    fn countdown_without_lookahead(&self, mut a: A) -> B {
+        let who = a.start_board.who_moves;
         let mut stored_a_mate = false;
-        while let Some(curr_move) = moves.pop() {
-            let mut board_with_move = self.timing_remembering_move(start_board, &curr_move);
+        while let Some(curr_move) = a.moves.pop() {
+            let mut board_with_move =
+                self.timing_remembering_move(&a.start_board, &curr_move, a.tx.clone());
             let average_scoring_duration = self.scoring_timings.calc_average() * 40;
             let curr_score = if !Engine::is_mate(board_with_move.score)
-                && (average_scoring_duration < single_move_deadline)
+                && (average_scoring_duration < a.single_move_deadline)
             {
                 let (_, best_score) = self.best_move_for_internal(
                     &mut board_with_move,
-                    &single_move_deadline,
+                    &a.single_move_deadline,
                     Engine::countdown_without_lookahead,
-                    curr_depth + 1,
+                    a.curr_depth + 1,
+                    a.tx.clone(),
                 );
                 best_score
             } else {
                 board_with_move.score
             };
 
-            Engine::update_max_search(who, max_search, curr_score);
+            Engine::update_max_search(who, &mut a.max_search, curr_score);
 
             let mate_detected = Engine::is_mate(curr_score);
             if !stored_a_mate || !mate_detected {
@@ -278,11 +295,17 @@ impl Engine {
                 // this will allow the score eval to be correct in best_move_for_internal, but
                 // we save a lot of memory for all unnecessary continuations
 
-                start_board.continuation.insert(curr_move, board_with_move);
+                a.start_board
+                    .continuation
+                    .insert(curr_move, board_with_move);
                 stored_a_mate |= mate_detected;
             }
         }
-        moves
+        B {
+            moves: a.moves,
+            max_search: a.max_search,
+            continuation: a.start_board.continuation,
+        }
     }
 
     fn update_max_search(who: PieceColor, max_search: &mut [f32], curr_score: f32) {
@@ -307,37 +330,38 @@ impl Engine {
 
     fn countdown<F>(
         &self,
-        mut moves: Vec<PossibleMove>,
+        moves: Vec<PossibleMove>,
         start_board: &mut PSBoard,
         single_move_deadline: Duration,
         look_ahead_method: F,
         curr_depth: u8,
+        tx: Sender<bool>,
     ) where
-        F: Fn(
-            &Self,
-            Vec<PossibleMove>,
-            &mut PSBoard,
-            Duration,
-            u8,
-            &mut [f32],
-        ) -> Vec<PossibleMove>,
+        F: Fn(&Self, A) -> B,
     {
         start_board.adjusted_score = 0.0;
         let who = start_board.who_moves;
-        let mut max_search = [if who == White {
+        let max_search = [if who == White {
             f32::NEG_INFINITY
         } else {
             f32::INFINITY
         }; 4];
 
-        moves = look_ahead_method(
+        let mut tmp_b = look_ahead_method(
             self,
-            moves,
-            start_board,
-            single_move_deadline,
-            curr_depth,
-            &mut max_search,
+            A {
+                moves,
+                start_board: start_board.clone(),
+                single_move_deadline,
+                curr_depth,
+                max_search,
+                tx,
+            },
         );
+
+        start_board.continuation.append(&mut tmp_b.continuation);
+
+        let (moves, mut max_search) = (tmp_b.moves, tmp_b.max_search);
         max_search.sort_unstable_by(if who == White {
             |a: &f32, b: &f32| a.partial_cmp(b).unwrap()
         } else {
@@ -361,30 +385,26 @@ impl Engine {
         self.move_cache.release(moves);
     }
 
-    fn countdown_with_look_ahead(
-        &self,
-        mut moves: Vec<PossibleMove>,
-        start_board: &mut PSBoard,
-        single_move_deadline: Duration,
-        curr_depth: u8,
-        max_search: &mut [f32],
-    ) -> Vec<PossibleMove> {
-        let who = start_board.who_moves;
+    fn countdown_with_look_ahead(&self, mut a: A) -> B {
+        let who = a.start_board.who_moves;
 
         let mut joins = Vec::new();
 
-        while let Some(curr_move) = moves.pop() {
+        while let Some(curr_move) = a.moves.pop() {
             let join_a = thread::spawn({
-                let mut board_clone = start_board.clone();
+                let board_clone = a.start_board.clone();
                 let engine_clone = self.clone();
+                let tx = a.tx.clone();
+
                 move || {
                     let mut board_with_move =
-                        engine_clone.timing_remembering_move(&mut board_clone, &curr_move);
+                        engine_clone.timing_remembering_move(&board_clone, &curr_move, tx.clone());
                     let (_, curr_score) = engine_clone.best_move_for_internal(
                         &mut board_with_move,
-                        &single_move_deadline,
+                        &a.single_move_deadline,
                         Engine::countdown_without_lookahead,
-                        curr_depth + 1,
+                        a.curr_depth + 1,
+                        tx.clone(),
                     );
 
                     (curr_score, board_with_move, curr_move)
@@ -396,24 +416,30 @@ impl Engine {
 
         for join in joins {
             let (curr_score, board_with_move, curr_move) = join.join().unwrap();
-            Engine::update_max_search(who, max_search, curr_score);
+            Engine::update_max_search(who, &mut a.max_search, curr_score);
 
             println!(
                 "{} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                (0..curr_depth).map(|_| " ").collect::<String>(),
+                (0..a.curr_depth).map(|_| " ").collect::<String>(),
                 board_with_move.score,
                 board_with_move.adjusted_score
             );
 
-            start_board.continuation.insert(curr_move, board_with_move);
+            a.start_board
+                .continuation
+                .insert(curr_move, board_with_move);
         }
-        moves
+        B {
+            moves: a.moves,
+            max_search: a.max_search,
+            continuation: a.start_board.continuation,
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
+    use std::{sync::mpsc, time::Duration};
 
     use crate::{
         baserules::board_rep::PossibleMove, engine::Engine, human_facing::helper::find_max_depth,
@@ -422,6 +448,7 @@ mod test {
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
     fn weird_eval_1() {
+        let (tx, _rx) = mpsc::channel();
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
@@ -431,6 +458,7 @@ mod test {
             Duration::from_millis(100),
             Engine::countdown_with_look_ahead,
             0,
+            tx,
         );
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         println!("{}", gamestate.worked_on_board.adjusted_score);
@@ -453,6 +481,8 @@ mod test {
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
     fn weird_eval_3() {
+        let (tx, rx) = mpsc::channel();
+
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
@@ -462,6 +492,7 @@ mod test {
             Duration::from_millis(100),
             Engine::countdown_with_look_ahead,
             0,
+            tx,
         );
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         println!("{}", gamestate.worked_on_board.adjusted_score);
@@ -471,6 +502,8 @@ mod test {
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
     #[test]
     fn weird_eval_4() {
+        let (tx, rx) = mpsc::channel();
+
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
@@ -480,6 +513,7 @@ mod test {
             Duration::from_millis(1000),
             Engine::countdown_with_look_ahead,
             0,
+            tx,
         );
         println!("Depth: {}", find_max_depth(gamestate.get_board()));
         println!("{}", gamestate.worked_on_board.adjusted_score);
