@@ -31,7 +31,7 @@ lazy_static! {
     static ref ENGINE_THINK_TIME: Duration = Duration::from_secs(5);
 }
 
-fn make_machine_move(engine: &mut Engine, gamestate: &mut GameState) {
+fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
     println!("It's my move now, let me think:");
     let to_move = calculate_move_for_console(engine, gamestate, &ENGINE_THINK_TIME)
         .1
@@ -47,7 +47,7 @@ fn main() {
     {
         input.read_line(&mut line).unwrap();
     }
-    let (mut engine, mut gamestate) = if line.trim().to_lowercase().starts_with('y') {
+    let (engine, mut gamestate) = if line.trim().to_lowercase().starts_with('y') {
         println!("What is the FEN of the starting position?");
         let mut line = String::new();
         input.read_line(&mut line).unwrap();
@@ -57,7 +57,7 @@ fn main() {
     };
     let machine_moves_first: bool = thread_rng().gen();
     if machine_moves_first {
-        make_machine_move(&mut engine, &mut gamestate);
+        make_machine_move(&engine, &mut gamestate);
     }
     while (gamestate.get_board().score.abs() - MATE).abs() > 1.0 {
         println!("Current board: {}", gamestate.get_board());
@@ -73,6 +73,6 @@ fn main() {
             println!("Sorry, I can't understand {line}");
         }
         println!("Current board: {}", gamestate.get_board());
-        make_machine_move(&mut engine, &mut gamestate);
+        make_machine_move(&engine, &mut gamestate);
     }
 }

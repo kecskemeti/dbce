@@ -25,7 +25,6 @@ use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::engine::{Engine, GameState};
-use parking_lot::Mutex;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -39,7 +38,7 @@ impl PieceColor {
 }
 
 pub fn calculate_move_for_console(
-    engine: &mut Engine,
+    engine: &Engine,
     gamestate: &mut GameState,
     deadline: &Duration,
 ) -> (Duration, (Option<PossibleMove>, f32)) {
@@ -50,11 +49,11 @@ pub fn calculate_move_for_console(
     let taken_this_much_time = ins.elapsed();
     let taken_this_much_time_ms = taken_this_much_time.as_millis();
     // visualise_explored_moves(gamestate.get_board());
-    println!("Went to depth {}", find_max_depth(gamestate.get_board()));
     println!("Move took {} ms", taken_this_much_time_ms);
+    println!("Went to depth {}", find_max_depth(gamestate.get_board()));
     println!(
         "{} kNodes/sec",
-        u128::from(machine_eval.2) / 1.max(taken_this_much_time_ms)
+        (machine_eval.2 as u128) / 1.max(taken_this_much_time_ms)
     );
     println!(
         "Evaluation result: {machine_move:?}, score: {}",
@@ -64,23 +63,17 @@ pub fn calculate_move_for_console(
 }
 
 pub fn find_max_depth(of_board: &PSBoard) -> u8 {
-    let max = Mutex::new(0);
-    internal_depth(of_board, 0, &max);
-    let final_max = max.lock();
-    *final_max
+    internal_depth(of_board, 0)
 }
 
-fn internal_depth(of_board: &PSBoard, curr_depth: u8, max: &Mutex<u8>) {
-    {
-        let mut int_mutex = max.lock();
-        if curr_depth > *int_mutex {
-            *int_mutex = curr_depth;
-        }
-    }
+fn internal_depth(of_board: &PSBoard, curr_depth: u8) -> u8 {
     let next_depth = curr_depth + 1;
-    for (_, next) in of_board.continuation.iter() {
-        internal_depth(next, next_depth, max);
-    }
+    of_board
+        .continuation
+        .values()
+        .map(|next_board| internal_depth(next_board, next_depth))
+        .max()
+        .unwrap_or(next_depth)
 }
 
 #[allow(dead_code)]

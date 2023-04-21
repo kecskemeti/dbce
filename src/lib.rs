@@ -20,6 +20,11 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
+use crate::baserules::board::PSBoard;
+use lazy_static::lazy_static;
+use std::mem::size_of;
+use sysinfo::{RefreshKind, System, SystemExt};
+
 pub mod baserules;
 pub mod engine;
 pub mod human_facing;
@@ -27,3 +32,24 @@ pub mod util;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+pub struct MemLimits {
+    pub max_memory_bytes: u64,
+    pub max_board_count: u32,
+}
+
+impl Default for MemLimits {
+    fn default() -> Self {
+        let sys = System::new_with_specifics(RefreshKind::new().with_memory());
+        let available = sys.available_memory();
+        MemLimits {
+            max_board_count: (available as usize / size_of::<PSBoard>()).min(u32::MAX as usize)
+                as u32,
+            max_memory_bytes: available,
+        }
+    }
+}
+
+lazy_static! {
+    pub static ref LIMITS: MemLimits = MemLimits::default();
+}

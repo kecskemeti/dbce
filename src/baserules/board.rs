@@ -143,8 +143,7 @@ impl Default for PSBoard {
 impl PSBoard {
     /// Makes a move as per the internal representation
     /// Note that the move is not really checked for validity
-    /// We will produce a completely new internal board representation as the result of the move
-    /// This will allow further evaluation. This is done unless we have the board already pre-calculated earlier
+    /// We might recall a previously calculated board if a continuation with the move was already found
     /// # Panics
     /// If there is a request to make a move for a piece that does not exist on the board
     ///
@@ -164,72 +163,92 @@ impl PSBoard {
             precalculated_board
         } else {
             // This is an unexpected move, or part of pre-calculation
-            let mut raw_board = self.board;
-            let piece_potentially_taken = self.get_loc(the_move.the_move.to);
-            {
-                if let Some(ep) = &self.ep {
-                    let current_piece = &self.get_loc(the_move.the_move.from).unwrap();
-                    if current_piece.kind == Pawn
-                        && ep.0 == the_move.the_move.to.0
-                        && ep.1 == the_move.the_move.to.1
-                    {
-                        // En passant was done, the long move pawn was taken
-                        raw_board.set_loc(
-                            BoardPos(the_move.the_move.from.0, the_move.the_move.to.1),
-                            &None,
-                        );
-                    }
+            self.make_move_noncached(the_move)
+        }
+    }
+
+    /// Makes a move as per the internal representation
+    /// Note that the move is not really checked for validity
+    /// We will produce a completely new internal board representation as the result of the move
+    /// This will allow further evaluation.
+    /// # Panics
+    /// If there is a request to make a move for a piece that does not exist on the board
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+    /// let bishop_moves = PossibleMove::simple_from_uci("f1b5").unwrap();
+    /// let ruy_lopez = kings_knight_opening.make_move_noncached(&bishop_moves);
+    /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
+    /// ```
+    pub fn make_move_noncached(&self, the_move: &PossibleMove) -> PSBoard {
+        let mut raw_board = self.board;
+        let piece_potentially_taken = self.get_loc(the_move.the_move.to);
+        {
+            if let Some(ep) = &self.ep {
+                let current_piece = &self.get_loc(the_move.the_move.from).unwrap();
+                if current_piece.kind == Pawn
+                    && ep.0 == the_move.the_move.to.0
+                    && ep.1 == the_move.the_move.to.1
+                {
+                    // En passant was done, the long move pawn was taken
+                    raw_board.set_loc(
+                        BoardPos(the_move.the_move.from.0, the_move.the_move.to.1),
+                        &None,
+                    );
                 }
             }
-            // The move for almost all the cases
-            let piece_before_move = self.get_loc(the_move.the_move.from);
-            raw_board.set_loc(the_move.the_move.to, piece_before_move);
-            if let Some(promotion) = &the_move.pawn_promotion {
-                //When we need to convert a pawn to something
-                let piece = raw_board[the_move.the_move.to]
-                    .unwrap()
-                    .pawn_promote(*promotion);
-                raw_board.set_loc(the_move.the_move.to, piece);
-            } else if let Some(rook_move) = &the_move.rook {
-                // when we are castling, the rook move is also stored
-                raw_board.set_loc(rook_move.to, self.get_loc(rook_move.from));
-                raw_board.set_loc(rook_move.from, &None);
-            }
-            raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
-            let current_piece = raw_board[the_move.the_move.to].unwrap();
-            PSBoard {
-                score: PSBoard::score_raw(&raw_board),
-                adjusted_score: f32::NAN,
-                board: raw_board,
-                who_moves: match current_piece.color {
-                    White => Black,
-                    Black => White,
-                },
-                ep: if current_piece.kind == Pawn
-                    && (the_move.the_move.from.0 - the_move.the_move.to.0).abs() == 2
-                {
-                    Some(BoardPos(
-                        (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
-                        the_move.the_move.to.1,
-                    ))
-                } else {
-                    None
-                },
-                castling: self.determine_castling_rights(
-                    &current_piece,
-                    the_move,
-                    piece_potentially_taken,
-                ),
-                half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
-                    0
-                } else if piece_potentially_taken.is_some() {
-                    0
-                } else {
-                    self.half_moves_since_pawn + 1
-                },
-                move_count: self.move_count + u16::from(current_piece.color == Black),
-                continuation: BTreeMap::new(),
-            }
+        }
+        // The move for almost all the cases
+        let piece_before_move = self.get_loc(the_move.the_move.from);
+        raw_board.set_loc(the_move.the_move.to, piece_before_move);
+        if let Some(promotion) = &the_move.pawn_promotion {
+            //When we need to convert a pawn to something
+            let piece = raw_board[the_move.the_move.to]
+                .unwrap()
+                .pawn_promote(*promotion);
+            raw_board.set_loc(the_move.the_move.to, piece);
+        } else if let Some(rook_move) = &the_move.rook {
+            // when we are castling, the rook move is also stored
+            raw_board.set_loc(rook_move.to, self.get_loc(rook_move.from));
+            raw_board.set_loc(rook_move.from, &None);
+        }
+        raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
+        let current_piece = raw_board[the_move.the_move.to].unwrap();
+        PSBoard {
+            score: PSBoard::score_raw(&raw_board),
+            adjusted_score: f32::NAN,
+            board: raw_board,
+            who_moves: match current_piece.color {
+                White => Black,
+                Black => White,
+            },
+            ep: if current_piece.kind == Pawn
+                && (the_move.the_move.from.0 - the_move.the_move.to.0).abs() == 2
+            {
+                Some(BoardPos(
+                    (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
+                    the_move.the_move.to.1,
+                ))
+            } else {
+                None
+            },
+            castling: self.determine_castling_rights(
+                &current_piece,
+                the_move,
+                piece_potentially_taken,
+            ),
+            half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
+                0
+            } else if piece_potentially_taken.is_some() {
+                0
+            } else {
+                self.half_moves_since_pawn + 1
+            },
+            move_count: self.move_count + u16::from(current_piece.color == Black),
+            continuation: BTreeMap::new(),
         }
     }
 

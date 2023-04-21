@@ -15,14 +15,23 @@ tokio = { version = "1.27.0", features = ["full"] }
 tokio-stream = { version = "0.1.12", features = ["fs"] }
 tokio-util = { version = "0.7.7", features = ["full"] }
 futures-util = "0.3.28"
-serde_json = "1.0.95"
+serde_json = "1.0.96"
 ahash = "0.8.3"
 enum-map = "2.5.0"
 enumset = "1.0.12"
 rustc-hash = "1.1.0"
 enum-iterator = "1.4.0"
-parking_lot = "0.12.1"
+global_counter = "0.2.2"
+sysinfo = "0.28.4"
+
 
 [profile.release]
 debug = 1
 lto = true
+
+[dev-dependencies]
+criterion = "0.4.0"
+
+[[bench]]
+name = "max_depth"
+harness = false

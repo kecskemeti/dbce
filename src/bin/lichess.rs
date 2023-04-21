@@ -52,8 +52,8 @@ async fn play_a_game(
     let mut opponent = None;
     let mut toignore = None;
     let mut impossiblemove = None;
-    let (mut engine, mut state) = Engine::new();
-    let lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
+    let (engine, mut state) = Engine::new();
+    let mut lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
     while let Some(Ok(bytes)) = resp.next().await {
         let start = Instant::now();
         if let Ok(gamestate) = serde_json::from_slice(&bytes) {
@@ -114,15 +114,12 @@ async fn play_a_game(
                             .max(1) as u64;
 
                         let deadline =
-                            Duration::from_millis(1.max(our_rem_time / deadline_divisor));
+                            Duration::from_millis(1.max(our_rem_time / deadline_divisor).min(5000));
 
                         for _ in 0..3 {
                             // it is our turn, let's see what we can come up with
-                            let (dur, mymove) = helper::calculate_move_for_console(
-                                &mut engine,
-                                &mut state,
-                                &deadline,
-                            );
+                            let (dur, mymove) =
+                                helper::calculate_move_for_console(&engine, &mut state, &deadline);
                             ourmovetime = dur;
                             if detected_color.is_this_resignable(mymove.1) {
                                 println!("Resign...");
@@ -140,6 +137,18 @@ async fn play_a_game(
                                     if res.status().is_success() {
                                         impossiblemove = None;
                                         break;
+                                    } else if let Ok(res) = lichess_api_call(
+                                        client.get("https://lichess.org/api/account/playing"),
+                                    )
+                                    .await
+                                    {
+                                        let gamelist = res.text().await.unwrap();
+                                        let games: Value = serde_json::from_str(&gamelist).unwrap();
+                                        if games["nowPlaying"].as_array().unwrap().is_empty() {
+                                            impossiblemove = None;
+                                            println!("Game is not even ongoing anymore, should not send moves!");
+                                            break;
+                                        }
                                     }
                                 }
                                 println!("Move was not possible to send, retry..");
