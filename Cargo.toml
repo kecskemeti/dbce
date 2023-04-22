@@ -23,7 +23,7 @@ rustc-hash = "1.1.0"
 enum-iterator = "1.4.0"
 global_counter = "0.2.2"
 sysinfo = "0.28.4"
-
+rayon = "1.7"
 
 [profile.release]
 debug = 1
