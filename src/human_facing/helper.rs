@@ -25,6 +25,7 @@ use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::engine::{Engine, GameState};
+use rayon::prelude::*;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -63,15 +64,25 @@ pub fn calculate_move_for_console(
 }
 
 pub fn find_max_depth(of_board: &PSBoard) -> u8 {
-    internal_depth(of_board, 0)
+    internal_depth_par(of_board, 0)
 }
 
-fn internal_depth(of_board: &PSBoard, curr_depth: u8) -> u8 {
+fn internal_depth_seq(of_board: &PSBoard, curr_depth: u8) -> u8 {
     let next_depth = curr_depth + 1;
     of_board
         .continuation
-        .values()
-        .map(|next_board| internal_depth(next_board, next_depth))
+        .iter()
+        .map(|(_, next_board)| internal_depth_seq(next_board, next_depth))
+        .max()
+        .unwrap_or(next_depth)
+}
+
+fn internal_depth_par(of_board: &PSBoard, curr_depth: u8) -> u8 {
+    let next_depth = curr_depth + 1;
+    of_board
+        .continuation
+        .par_iter()
+        .map(|(_, next_board)| internal_depth_seq(next_board, next_depth))
         .max()
         .unwrap_or(next_depth)
 }
