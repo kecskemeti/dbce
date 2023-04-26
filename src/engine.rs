@@ -31,6 +31,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ptr;
+use std::sync::atomic::AtomicU8;
 use std::sync::{Arc, Mutex};
 
 use global_counter::primitive::fast::FlushingCounterU32;
@@ -57,6 +58,7 @@ pub struct CountdownInput<'a> {
     curr_depth: u8,
     max_search: [f32; 4],
     counter: &'a FlushingCounterU32,
+    maximum: &'a AtomicU8,
     thread_info: &'a mut EngineThread,
 }
 
@@ -181,14 +183,19 @@ impl Engine {
             .unwrap()
     }
 
-    fn manage_counter<T, F>(to_count: F) -> (T, u32)
+    fn manage_counter<T, F>(to_count: F) -> (T, u32, u8)
     where
-        F: FnOnce(&FlushingCounterU32) -> T,
+        F: FnOnce(&FlushingCounterU32, &AtomicU8) -> T,
     {
         let board_counter = FlushingCounterU32::new(0);
-        let ret = to_count(&board_counter);
+        let maximum_depth = AtomicU8::new(0);
+        let ret = to_count(&board_counter, &maximum_depth);
         board_counter.flush();
-        (ret, board_counter.get())
+        (
+            ret,
+            board_counter.get(),
+            maximum_depth.load(std::sync::atomic::Ordering::Acquire),
+        )
     }
 
     // board count send instead of lock
@@ -196,20 +203,22 @@ impl Engine {
         &self,
         state: &mut GameState,
         deadline: &Duration,
-    ) -> (Option<PossibleMove>, f32, u32) {
-        let ((best_move, score), board_count) = Engine::manage_counter(|counter| {
-            self.best_move_for_internal(
-                &mut state.worked_on_board,
-                deadline,
-                Engine::countdown_with_look_ahead,
-                0,
-                counter,
-                &mut EngineThread::from(self),
-            )
-        });
+    ) -> (Option<PossibleMove>, f32, u32, u8) {
+        let ((best_move, score), board_count, maximum) =
+            Engine::manage_counter(|counter, maximum| {
+                self.best_move_for_internal(
+                    &mut state.worked_on_board,
+                    deadline,
+                    Engine::countdown_with_look_ahead,
+                    0,
+                    counter,
+                    maximum,
+                    &mut EngineThread::from(self),
+                )
+            });
         // let timings = self.scoring_timings.lock().unwrap();
         // println!("Overall average now: {:?}", timings.calc_average());
-        (best_move, score, board_count)
+        (best_move, score, board_count, maximum)
     }
 
     pub fn is_mate(score: f32) -> bool {
@@ -225,6 +234,7 @@ impl Engine {
         look_ahead_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
         thread_info: &mut EngineThread,
     ) -> (Option<PossibleMove>, f32)
     where
@@ -259,6 +269,7 @@ impl Engine {
                 look_ahead_method,
                 curr_depth,
                 counter,
+                maximum,
                 thread_info,
             );
 
@@ -315,10 +326,34 @@ impl Engine {
                     Engine::countdown_without_lookahead,
                     a.curr_depth + 1,
                     a.counter,
+                    a.maximum,
                     a.thread_info,
                 );
                 best_score
             } else {
+                let mut val_before = a.maximum.load(std::sync::atomic::Ordering::Acquire);
+
+                loop {
+                    let cur_max = a
+                        .maximum
+                        .fetch_max(a.curr_depth, std::sync::atomic::Ordering::Acquire);
+                    if cur_max == a.curr_depth {
+                        let res = a.maximum.compare_exchange(
+                            val_before,
+                            cur_max,
+                            std::sync::atomic::Ordering::Acquire,
+                            std::sync::atomic::Ordering::Acquire,
+                        );
+
+                        if let Err(err) = res {
+                            val_before = err;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
                 board_with_move.score
             };
 
@@ -370,6 +405,7 @@ impl Engine {
         look_ahead_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
         thread_info: &mut EngineThread,
     ) where
         F: Fn(&Self, CountdownInput) -> CountdownOutput,
@@ -391,6 +427,7 @@ impl Engine {
                 curr_depth,
                 max_search,
                 counter,
+                maximum,
                 thread_info,
             },
         );
@@ -445,6 +482,7 @@ impl Engine {
                             Engine::countdown_without_lookahead,
                             a.curr_depth + 1,
                             a.counter,
+                            a.maximum,
                             &mut thread_info_clone,
                         );
                         a.counter.flush();
@@ -504,7 +542,8 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+
+        Engine::manage_counter(|counter, maximum| {
             engine.countdown(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -512,6 +551,7 @@ mod test {
                 Engine::countdown_with_look_ahead,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
@@ -537,7 +577,7 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+        Engine::manage_counter(|counter, maximum| {
             engine.countdown(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -545,6 +585,7 @@ mod test {
                 Engine::countdown_with_look_ahead,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
@@ -560,7 +601,7 @@ mod test {
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+        Engine::manage_counter(|counter, maximum| {
             engine.countdown(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -568,6 +609,7 @@ mod test {
                 Engine::countdown_with_look_ahead,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
