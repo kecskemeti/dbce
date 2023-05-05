@@ -119,6 +119,18 @@ lazy_static! {
             .enumerate()
             .map(|(idx, ps)| (ps, idx))
             .collect();
+    static ref ALL_POSSIBLE_PIECE_STATES_SPARSE: FxHashMap<u32, &'static Option<PieceState>> =
+        ALL_POSSIBLE_PIECE_STATES
+            .iter()
+            .enumerate()
+            .flat_map(shift)
+            .collect();
+}
+
+fn shift(
+    (idx, ps): (usize, &'static Option<PieceState>),
+) -> impl Iterator<Item = (u32, &'static Option<PieceState>)> {
+    (0..u32::BITS / 4).map(move |shift_amount| ((idx as u32) << (shift_amount * 4), ps))
 }
 
 impl PieceState {
@@ -149,8 +161,9 @@ impl PieceState {
         &ALL_POSSIBLE_PIECE_STATES[*(REVERSE_POSSIBLE_PIECE_STATES.get(&Some(new_state)).unwrap())]
     }
 
-    pub fn from_u8(bit_repr: u8) -> &'static Option<Self> {
-        &ALL_POSSIBLE_PIECE_STATES[bit_repr as usize]
+    #[inline]
+    pub fn from_u8(bit_repr: u32) -> &'static Option<Self> {
+        ALL_POSSIBLE_PIECE_STATES_SPARSE[&bit_repr]
     }
 
     pub fn bits(a_piece: &Option<PieceState>) -> u8 {

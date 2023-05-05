@@ -23,6 +23,7 @@
 
 use crate::baserules::board_rep::BoardPos;
 use crate::baserules::piece_state::PieceState;
+use lazy_static::lazy_static;
 use std::ops;
 
 #[derive(Clone, Copy)]
@@ -50,7 +51,7 @@ impl ops::Index<BoardPos> for RawBoard {
     fn index(&self, BoardPos(row, col): BoardPos) -> &Self::Output {
         let a_row = self.0[row as usize];
         let a_bit_piece = a_row >> (col << 2) & 0b1111;
-        PieceState::from_u8(a_bit_piece as u8)
+        PieceState::from_u8(a_bit_piece)
     }
 }
 impl<'a> IntoIterator for &'a RawBoard {
@@ -61,40 +62,51 @@ impl<'a> IntoIterator for &'a RawBoard {
     fn into_iter(self) -> Self::IntoIter {
         RawBoardIterator {
             raw_board: self,
-            curr_row_data: self.0[0],
-            curr_row: 0,
-            curr_col: 0,
+            curr_idx: 0,
         }
     }
+}
+lazy_static! {
+    static ref ALL_POSSIBLE_MASKS: [u32; (u32::BITS / 4) as usize] = generate_masks();
+}
+
+fn generate_masks() -> [u32; (u32::BITS / 4) as usize] {
+    let mut mask_permutations = [0; (u32::BITS / 4) as usize];
+
+    for (index, shift) in (0..u32::BITS).step_by(4).enumerate() {
+        let n: u32 = 0xF << shift;
+        mask_permutations[index] = n;
+    }
+
+    mask_permutations
 }
 
 pub struct RawBoardIterator<'a> {
     raw_board: &'a RawBoard,
-    curr_row_data: u32,
-    curr_row: usize,
-    curr_col: usize,
+    curr_idx: usize,
 }
 
 impl<'a> Iterator for RawBoardIterator<'a> {
     type Item = &'a Option<PieceState>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_col == 8 {
-            self.curr_row += 1;
-            if self.curr_row == 8 {
-                return None;
-            }
-            self.curr_row_data = self.raw_board.0[self.curr_row];
-            self.curr_col = 0;
-        }
-        let ret = PieceState::from_u8((self.curr_row_data & 0b1111) as u8);
-        self.curr_col += 1;
-        self.curr_row_data >>= 4;
-        Some(ret)
-    }
+        if self.curr_idx == 64 {
+            None
+        } else {
+            unsafe {
+                let ret = PieceState::from_u8(
+                    ALL_POSSIBLE_MASKS.get_unchecked(self.curr_idx & 0b111)
+                        & (*self.raw_board.0.get_unchecked(self.curr_idx >> 3)),
+                );
 
+                self.curr_idx += 1;
+                Some(ret)
+            }
+        }
+    }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remainder = 64 - self.curr_row * 8 - self.curr_col;
+        let remainder = 64 - self.curr_idx;
         (remainder, Some(remainder))
     }
 }
@@ -106,6 +118,8 @@ mod test {
     use crate::baserules::board::PSBoard;
     use crate::baserules::board_rep::BoardPos;
     use std::str::FromStr;
+
+    use super::generate_masks;
 
     #[test]
     fn iterator_test() {
@@ -120,5 +134,16 @@ mod test {
             psboard.get_loc(BoardPos::from_str("d8").unwrap()),
             iter.nth(8 * 7 + 3).unwrap()
         );
+    }
+
+    #[test]
+    pub fn test_mask_generator() {
+        // [0b1111, 0b11110000, 0b111100000000, 0b1111000000000000, ...];
+        let masks = generate_masks();
+        assert_eq!(masks[0], 0b1111);
+        assert_eq!(masks[1], 0b11110000);
+        assert_eq!(masks[2], 0b111100000000);
+        assert_eq!(masks[3], 0b1111000000000000);
+        assert_eq!(masks[7], 0b11110000000000000000000000000000);
     }
 }
