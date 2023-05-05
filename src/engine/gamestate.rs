@@ -1,3 +1,4 @@
+use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::engine::continuation::BoardContinuation;
 use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
@@ -10,7 +11,12 @@ pub struct GameState {
 
 impl GameState {
     #[inline]
-    pub fn get_board(&self) -> &BoardContinuation {
+    pub fn continuation(&self) -> &BoardContinuation {
+        &self.worked_on_board
+    }
+
+    #[inline]
+    pub fn psboard(&self) -> &PSBoard {
         &self.worked_on_board
     }
 

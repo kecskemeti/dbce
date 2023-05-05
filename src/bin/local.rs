@@ -60,8 +60,8 @@ fn main() {
     if machine_moves_first {
         make_machine_move(&engine, &mut gamestate);
     }
-    while !is_mate(gamestate.get_board().board.score) {
-        println!("Current board: {}", gamestate.get_board().board);
+    while !is_mate(gamestate.psboard().score) {
+        println!("Current board: {}", gamestate.psboard());
         loop {
             println!("What's your move?");
             let mut line = String::new();
@@ -73,7 +73,7 @@ fn main() {
             }
             println!("Sorry, I can't understand {line}");
         }
-        println!("Current board: {}", gamestate.get_board().board);
+        println!("Current board: {}", gamestate.psboard());
         make_machine_move(&engine, &mut gamestate);
     }
 }

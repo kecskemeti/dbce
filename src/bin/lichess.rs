@@ -78,7 +78,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                         lichess_api_call(client.post(resignwithgameid.clone())).await?;
                         panic!(
                             "Could not make the following move {impossiblemove:?} on the board:\n {} \n {}",
-                            state.get_board().board,
+                            state.psboard(),
                             gamestate["moves"]
                         );
                     }
@@ -89,19 +89,19 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                     if let Some(lastmove) = allmoves.split_ascii_whitespace().last() {
                         state.make_an_uci_move(lastmove)?;
                     }
-                    let currentboard = state.get_board();
+                    let currentboard = state.psboard();
                     // we make sure we still have at least 20 moves to do before we run out of time.
                     let deadline_divisor = 20
-                        * if currentboard.board.move_count == 0 {
+                        * if currentboard.move_count == 0 {
                             10 // Make the first move very quick to avoid aborts
-                        } else if currentboard.board.move_count < 10 {
+                        } else if currentboard.move_count < 10 {
                             2 // Make the next few moves a bit quicker to allow more thought in late games
                         } else {
                             1 // Let's just allow as much thought now as we can go for
                         };
                     let detected_color = *ourcolor.as_ref().unwrap();
-                    if currentboard.board.who_moves == detected_color {
-                        let our_rem_time = (i128::from(if currentboard.board.who_moves == White {
+                    if currentboard.who_moves == detected_color {
+                        let our_rem_time = (i128::from(if currentboard.who_moves == White {
                             white_rem_time
                         } else {
                             black_rem_time
@@ -185,7 +185,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                 let op = format!(
                     "https://lichess.org/api/bot/game/{}/{}",
                     gameid,
-                    if state.get_board().board.half_moves_since_pawn == 0 {
+                    if state.psboard().half_moves_since_pawn == 0 {
                         toignore = opponent;
                         println!("Due to initial inactivity aborting the game, we will move on to another opponent");
                         "abort"

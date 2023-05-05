@@ -26,7 +26,7 @@ impl EngineThread {
         if board.continuation.contains_key(amove) {
             board.continuation.get_mut(amove).unwrap()
         } else {
-            let (psb, dur) = EngineThread::timed_move(&board.board, amove);
+            let (psb, dur) = EngineThread::timed_move(board, amove);
             self.0.add(dur);
             board
                 .continuation

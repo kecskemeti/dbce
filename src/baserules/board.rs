@@ -376,7 +376,7 @@ mod test {
 
     #[test]
     fn move_castling() {
-        let mut prep_for_castle =
+        let prep_for_castle =
             PSBoard::from_fen("rnbqk2r/pppp1ppp/3bpn2/8/8/3BPN2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
         let after_move = prep_for_castle.make_move_noncached(&PossibleMove {
             the_move: BaseMove::from_uci("e1g1").unwrap(),

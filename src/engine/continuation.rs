@@ -2,6 +2,7 @@ use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use rand::{thread_rng, Rng};
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -19,6 +20,13 @@ impl Default for BoardContinuation {
     }
 }
 
+impl Deref for BoardContinuation {
+    type Target = PSBoard;
+    fn deref(&self) -> &Self::Target {
+        &self.board
+    }
+}
+
 impl BoardContinuation {
     pub fn new(of_board: PSBoard) -> BoardContinuation {
         BoardContinuation {
@@ -33,7 +41,7 @@ impl BoardContinuation {
         if let Some(cont) = self.continuation.remove(the_move) {
             cont
         } else {
-            BoardContinuation::new(self.board.make_move_noncached(the_move))
+            BoardContinuation::new(self.make_move_noncached(the_move))
         }
     }
 

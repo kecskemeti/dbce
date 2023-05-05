@@ -51,7 +51,7 @@ pub fn calculate_move_for_console(
     let taken_this_much_time_ms = taken_this_much_time.as_millis();
     // visualise_explored_moves(gamestate.get_board());
     println!("Move took {} ms", taken_this_much_time_ms);
-    println!("Went to depth {}", find_max_depth(gamestate.get_board()));
+    println!("Went to depth {}", find_max_for_gs(gamestate));
     println!(
         "{} kNodes/sec",
         (machine_eval.2 as u128) / 1.max(taken_this_much_time_ms)
@@ -61,6 +61,10 @@ pub fn calculate_move_for_console(
         machine_eval.1
     );
     (taken_this_much_time, (machine_eval.0, machine_eval.1))
+}
+
+pub fn find_max_for_gs(gs: &GameState) -> u8 {
+    find_max_depth(gs.continuation())
 }
 
 pub fn find_max_depth(of_board: &BoardContinuation) -> u8 {

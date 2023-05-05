@@ -125,12 +125,24 @@ lazy_static! {
             .enumerate()
             .flat_map(shift)
             .collect();
+    static ref ALL_POSSIBLE_MASKS: [u32; (u32::BITS / 4) as usize] = generate_masks();
 }
 
 fn shift(
     (idx, ps): (usize, &'static Option<PieceState>),
 ) -> impl Iterator<Item = (u32, &'static Option<PieceState>)> {
     (0..u32::BITS / 4).map(move |shift_amount| ((idx as u32) << (shift_amount * 4), ps))
+}
+
+fn generate_masks() -> [u32; (u32::BITS / 4) as usize] {
+    let mut mask_permutations = [0; (u32::BITS / 4) as usize];
+
+    for (index, shift) in (0..u32::BITS).step_by(4).enumerate() {
+        let n: u32 = 0xF << shift;
+        mask_permutations[index] = n;
+    }
+
+    mask_permutations
 }
 
 impl PieceState {
@@ -162,8 +174,13 @@ impl PieceState {
     }
 
     #[inline]
-    pub fn from_u8(bit_repr: u32) -> &'static Option<Self> {
+    pub fn from_u32(bit_repr: u32) -> &'static Option<Self> {
         ALL_POSSIBLE_PIECE_STATES_SPARSE[&bit_repr]
+    }
+
+    #[inline]
+    pub fn masked_ps_conversion(col: usize, unmasked: u32) -> &'static Option<PieceState> {
+        PieceState::from_u32(unsafe { ALL_POSSIBLE_MASKS.get_unchecked(col) } & unmasked)
     }
 
     pub fn bits(a_piece: &Option<PieceState>) -> u8 {
@@ -175,7 +192,7 @@ impl PieceState {
 mod test {
     use crate::baserules::piece_color::PieceColor::{Black, White};
     use crate::baserules::piece_kind::PieceKind::{King, Queen};
-    use crate::baserules::piece_state::PieceState;
+    use crate::baserules::piece_state::{generate_masks, PieceState};
 
     #[test]
     fn lookup() {
@@ -184,19 +201,19 @@ mod test {
                 kind: King,
                 color: White
             }),
-            *PieceState::from_u8(1)
+            *PieceState::from_u32(1)
         );
         assert_eq!(
             Some(PieceState {
                 kind: King,
                 color: Black
             }),
-            *PieceState::from_u8(1 + 8)
+            *PieceState::from_u32(1 + 8)
         );
     }
     #[test]
     fn promotion() {
-        let a_pawn = PieceState::from_u8(6);
+        let a_pawn = PieceState::from_u32(6);
         let a_promoted_pawn = a_pawn.unwrap().pawn_promote(Queen);
         assert_eq!(
             Some(PieceState {
@@ -205,7 +222,7 @@ mod test {
             }),
             *a_promoted_pawn
         );
-        let a_pawn = PieceState::from_u8(6 + 8);
+        let a_pawn = PieceState::from_u32(6 + 8);
         let a_promoted_pawn = a_pawn.unwrap().pawn_promote(Queen);
         assert_eq!(
             Some(PieceState {
@@ -227,5 +244,16 @@ mod test {
             color: Black,
         });
         assert_eq!(1 + 8, PieceState::bits(&black_king));
+    }
+
+    #[test]
+    pub fn test_mask_generator() {
+        // [0b1111, 0b11110000, 0b111100000000, 0b1111000000000000, ...];
+        let masks = generate_masks();
+        assert_eq!(masks[0], 0b1111);
+        assert_eq!(masks[1], 0b11110000);
+        assert_eq!(masks[2], 0b111100000000);
+        assert_eq!(masks[3], 0b1111000000000000);
+        assert_eq!(masks[7], 0b11110000000000000000000000000000);
     }
 }

@@ -44,7 +44,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
     }
     if castling {
         let castle_type = the_move.split('-').count();
-        let castle_row = if board.board.who_moves == White { 0 } else { 7 };
+        let castle_row = if board.who_moves == White { 0 } else { 7 };
         if castle_type == 2 {
             //short
             internal_move = Some(PossibleMove {
@@ -100,13 +100,13 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             }
         }
         let mut all_moves = Vec::new();
-        board.board.gen_potential_moves(false, &mut all_moves);
+        board.gen_potential_moves(false, &mut all_moves);
         if row.len() == 1 {
             if col.len() == 1 {
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 // regular move
                 for a_move in all_moves {
-                    let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
                     if moving_piece.kind == piece_kind
                         && a_move.the_move.to.0 == target.0
                         && a_move.the_move.to.1 == target.1
@@ -133,7 +133,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 let source_col = col.pop().unwrap();
                 for a_move in all_moves {
-                    let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
                     if moving_piece.kind == piece_kind
                         && a_move.the_move.from.1 == source_col
                         && a_move.the_move.to.0 == target.0
@@ -162,7 +162,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             let target = (row.pop().unwrap(), col.pop().unwrap());
             let source_row = row.pop().unwrap();
             for a_move in all_moves {
-                let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
                 if moving_piece.kind == piece_kind
                     && a_move.the_move.from.0 == source_row
                     && a_move.the_move.to.0 == target.0
@@ -176,7 +176,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             let target = (row.pop().unwrap(), col.pop().unwrap());
             let source = (row.pop().unwrap(), col.pop().unwrap());
             for a_move in all_moves {
-                let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
                 if moving_piece.kind == piece_kind
                     && a_move.the_move.from.0 == source.0
                     && a_move.the_move.from.1 == source.1
@@ -219,13 +219,13 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
             rook: None,
         }
     } else {
-        let moving_piece = board.board.get_loc(the_move.from).as_ref().unwrap();
+        let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
         let rook_from = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 });
         let rook_to = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 });
         PossibleMove {
             the_move,
             pawn_promotion: None,
-            rook: if !board.board.castling.is_empty()
+            rook: if !board.castling.is_empty()
                 && (the_move.to.0 == 0 || the_move.to.0 == 7)
                 && the_move.from.1 == 4
                 && (the_move.to.1 == 6 || the_move.to.1 == 2)
@@ -257,7 +257,7 @@ mod test {
         assert!(result.is_some());
         assert_eq!(
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
-            result.unwrap().board.to_fen()
+            result.unwrap().to_fen()
         );
     }
 }
