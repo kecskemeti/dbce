@@ -133,7 +133,7 @@ impl PieceState {
     /// assert_eq!(PieceState::from_char('K'),white_king);
     /// ```
     pub fn from_char(fen_piece: char) -> Self {
-        PieceState {
+        Self {
             kind: PieceKind::from_char(fen_piece),
             color: if fen_piece.is_ascii_lowercase() {
                 Black
@@ -149,8 +149,9 @@ impl PieceState {
         &ALL_POSSIBLE_PIECE_STATES[*(REVERSE_POSSIBLE_PIECE_STATES.get(&Some(new_state)).unwrap())]
     }
 
+    #[inline(always)]
     pub fn from_u8(bit_repr: u8) -> &'static Option<Self> {
-        &ALL_POSSIBLE_PIECE_STATES[bit_repr as usize]
+        unsafe { ALL_POSSIBLE_PIECE_STATES.get_unchecked(bit_repr as usize) }
     }
 
     pub fn bits(a_piece: &Option<PieceState>) -> u8 {

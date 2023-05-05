@@ -22,7 +22,12 @@
  */
 
 use std::collections::VecDeque;
+use std::error::Error;
 use std::time::Duration;
+
+pub type AnyError = Box<dyn Error>;
+pub type IntResult<T> = Result<T, AnyError>;
+pub type EmptyResult = IntResult<()>;
 
 #[derive(Clone)]
 pub struct DurationAverage(VecDeque<Duration>);

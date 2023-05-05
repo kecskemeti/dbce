@@ -21,7 +21,6 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::io;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -34,14 +33,10 @@ use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use dbce::baserules::piece_color::PieceColor::{Black, White};
 use dbce::engine::Engine;
 use dbce::human_facing::helper;
-use dbce::util::DurationAverage;
+use dbce::util::{DurationAverage, EmptyResult, IntResult};
 use serde_json::Value;
 
-async fn play_a_game(
-    gameid: &str,
-    botid: &str,
-    client: &Client,
-) -> Result<Option<String>, Box<dyn Error>> {
+async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Option<String>> {
     let resignwithgameid = format!("https://lichess.org/api/bot/game/{gameid}/resign/");
     let movewithgameid = format!("https://lichess.org/api/bot/game/{gameid}/move/");
     let getrq = client.get(format!("https://lichess.org/api/bot/game/stream/{gameid}"));
@@ -83,7 +78,7 @@ async fn play_a_game(
                         lichess_api_call(client.post(resignwithgameid.clone())).await?;
                         panic!(
                             "Could not make the following move {impossiblemove:?} on the board:\n {} \n {}",
-                            state.get_board(),
+                            state.get_board().board,
                             gamestate["moves"]
                         );
                     }
@@ -97,16 +92,16 @@ async fn play_a_game(
                     let currentboard = state.get_board();
                     // we make sure we still have at least 20 moves to do before we run out of time.
                     let deadline_divisor = 20
-                        * if currentboard.move_count == 0 {
+                        * if currentboard.board.move_count == 0 {
                             10 // Make the first move very quick to avoid aborts
-                        } else if currentboard.move_count < 10 {
+                        } else if currentboard.board.move_count < 10 {
                             2 // Make the next few moves a bit quicker to allow more thought in late games
                         } else {
                             1 // Let's just allow as much thought now as we can go for
                         };
                     let detected_color = *ourcolor.as_ref().unwrap();
-                    if currentboard.who_moves == detected_color {
-                        let our_rem_time = (i128::from(if currentboard.who_moves == White {
+                    if currentboard.board.who_moves == detected_color {
+                        let our_rem_time = (i128::from(if currentboard.board.who_moves == White {
                             white_rem_time
                         } else {
                             black_rem_time
@@ -190,7 +185,7 @@ async fn play_a_game(
                 let op = format!(
                     "https://lichess.org/api/bot/game/{}/{}",
                     gameid,
-                    if state.get_board().half_moves_since_pawn == 0 {
+                    if state.get_board().board.half_moves_since_pawn == 0 {
                         toignore = opponent;
                         println!("Due to initial inactivity aborting the game, we will move on to another opponent");
                         "abort"
@@ -208,7 +203,7 @@ async fn play_a_game(
     Ok(toignore)
 }
 
-async fn lichess_api_call(client_op: RequestBuilder) -> Result<Response, Box<dyn Error>> {
+async fn lichess_api_call(client_op: RequestBuilder) -> IntResult<Response> {
     let resp = client_op.send().await?;
     if resp.status() == StatusCode::TOO_MANY_REQUESTS {
         println!("Lichess rate limiting request, obeying with a bit more than a minute long delay");
@@ -217,10 +212,7 @@ async fn lichess_api_call(client_op: RequestBuilder) -> Result<Response, Box<dyn
     Ok(resp)
 }
 
-async fn best_rating_on_lichess(
-    user: &str,
-    client: &Client,
-) -> Result<Option<u64>, Box<dyn Error>> {
+async fn best_rating_on_lichess(user: &str, client: &Client) -> IntResult<Option<u64>> {
     let target_props: Value =
         lichess_api_call(client.get(format!("https://lichess.org/api/user/{user}")))
             .await?
@@ -241,7 +233,7 @@ challenges (one at a time), also it will challenge bots currently available on l
 it does a 2.5 move deep full search.
  */
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> EmptyResult {
     let input = io::stdin();
     println!("What is the auth token?");
     let mut line = String::new();

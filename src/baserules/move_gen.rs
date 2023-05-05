@@ -286,9 +286,6 @@ impl PSBoard {
     /// assert!(van_geet_opening_found);
     /// ```
     pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
-        if !self.continuation.is_empty() {
-            return self.continuation.keys().for_each(|k| the_moves.push(*k));
-        }
         let king_move_call = if castling_allowed && !self.castling.is_empty() {
             PSBoard::gen_king_moves_with_castling
         } else {
@@ -484,7 +481,10 @@ mod test {
             Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
 
         gamestate.make_a_human_move("Rc1+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.get_board()));
+        assert_eq!(
+            format!("{board}"),
+            format!("{}", gamestate.get_board().board)
+        );
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         assert_eq!(
@@ -501,7 +501,10 @@ mod test {
             Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
 
         gamestate.make_a_human_move("Qxf6+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.get_board()));
+        assert_eq!(
+            format!("{board}"),
+            format!("{}", gamestate.get_board().board)
+        );
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         let acceptable_moves = [
@@ -525,7 +528,10 @@ mod test {
             Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
 
         gamestate.make_a_human_move("Qg7+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.get_board()));
+        assert_eq!(
+            format!("{board}"),
+            format!("{}", gamestate.get_board().board)
+        );
 
         let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
         assert_eq!(
@@ -592,7 +598,7 @@ mod test {
         gamestate.make_a_human_move("cxb2").unwrap();
         let the_board = gamestate.get_board().clone();
         let mut moves = Vec::new();
-        the_board.gen_potential_moves(true, &mut moves);
+        the_board.board.gen_potential_moves(true, &mut moves);
         println!("{moves:?}");
         assert!(moves.contains(&PossibleMove::simple_from_uci("f7d8").unwrap()));
     }

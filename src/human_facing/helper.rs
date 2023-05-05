@@ -21,10 +21,10 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
-use crate::engine::{Engine, GameState};
+use crate::engine::continuation::BoardContinuation;
+use crate::engine::{gamestate::GameState, Engine};
 use rayon::prelude::*;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -63,11 +63,11 @@ pub fn calculate_move_for_console(
     (taken_this_much_time, (machine_eval.0, machine_eval.1))
 }
 
-pub fn find_max_depth(of_board: &PSBoard) -> u8 {
+pub fn find_max_depth(of_board: &BoardContinuation) -> u8 {
     internal_depth_par(of_board, 0)
 }
 
-fn internal_depth_seq(of_board: &PSBoard, curr_depth: u8) -> u8 {
+fn internal_depth_seq(of_board: &BoardContinuation, curr_depth: u8) -> u8 {
     let next_depth = curr_depth + 1;
     of_board
         .continuation
@@ -77,7 +77,7 @@ fn internal_depth_seq(of_board: &PSBoard, curr_depth: u8) -> u8 {
         .unwrap_or(next_depth)
 }
 
-fn internal_depth_par(of_board: &PSBoard, curr_depth: u8) -> u8 {
+fn internal_depth_par(of_board: &BoardContinuation, curr_depth: u8) -> u8 {
     let next_depth = curr_depth + 1;
     of_board
         .continuation
@@ -87,12 +87,21 @@ fn internal_depth_par(of_board: &PSBoard, curr_depth: u8) -> u8 {
         .unwrap_or(next_depth)
 }
 
+pub fn total_continuation_boards(of_board: &BoardContinuation) -> u32 {
+    of_board.continuation.len() as u32
+        + of_board
+            .continuation
+            .values()
+            .map(total_continuation_boards)
+            .sum::<u32>()
+}
+
 #[allow(dead_code)]
-pub fn visualise_explored_moves(of_board: &PSBoard) {
+pub fn visualise_explored_moves(of_board: &BoardContinuation) {
     internal_visualise(of_board, 0);
 }
 
-fn internal_visualise(of_board: &PSBoard, depth: u8) {
+fn internal_visualise(of_board: &BoardContinuation, depth: u8) {
     let prefix: String = (0..depth).map(|_| ' ').collect();
     let next_depth = depth + 1;
     for (a_move, its_board) in of_board.continuation.iter() {

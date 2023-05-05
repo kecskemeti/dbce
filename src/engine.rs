@@ -20,39 +20,35 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board::{PSBoard, MATE};
+pub mod continuation;
+mod enginethread;
+pub mod gamestate;
+
+use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::*;
-use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
 use crate::util::DurationAverage;
-use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::error::Error;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
+use crate::baserules::rawboard::is_mate;
+use crate::engine::continuation::BoardContinuation;
+use crate::engine::enginethread::EngineThread;
+use crate::engine::gamestate::GameState;
 use global_counter::primitive::fast::FlushingCounterU32;
 use std::thread;
 use std::time::Duration;
-use tokio::time::Instant;
 
 #[derive(Clone)]
 pub struct Engine {
     scoring_timings: Arc<Mutex<DurationAverage>>,
 }
 
-#[derive(Clone)]
-struct EngineThread(DurationAverage);
-
-pub struct GameState {
-    worked_on_board: PSBoard,
-}
-
-pub struct CountdownInput<'a> {
+pub struct ExplorationInput<'a> {
     moves: Vec<PossibleMove>,
-    start_board: PSBoard,
+    start_board: &'a mut BoardContinuation,
     single_move_deadline: Duration,
     curr_depth: u8,
     max_search: [f32; 4],
@@ -60,64 +56,8 @@ pub struct CountdownInput<'a> {
     thread_info: &'a mut EngineThread,
 }
 
-pub struct CountdownOutput {
+pub struct ExplorationOutput {
     max_search: [f32; 4],
-    continuation: BTreeMap<PossibleMove, PSBoard>,
-}
-
-impl GameState {
-    #[inline]
-    pub fn get_board(&self) -> &PSBoard {
-        &self.worked_on_board
-    }
-
-    #[inline]
-    pub fn make_an_uci_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
-        self.worked_on_board = make_an_uci_move(&mut self.worked_on_board, themove)?;
-        Ok(())
-    }
-
-    #[inline]
-    pub fn make_a_human_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
-        self.worked_on_board =
-            make_a_human_move(&mut self.worked_on_board, themove).ok_or("Conversion error")?;
-        Ok(())
-    }
-
-    #[inline]
-    pub fn make_a_human_move_or_panic(&mut self, themove: &str) {
-        self.make_a_human_move(themove).unwrap()
-    }
-
-    #[inline]
-    pub fn make_a_generated_move(&mut self, themove: &PossibleMove) {
-        self.worked_on_board = self.worked_on_board.make_a_move(themove);
-    }
-}
-
-impl EngineThread {
-    fn timed_move(board: &PSBoard, amove: &PossibleMove) -> (PSBoard, Duration) {
-        let pre = Instant::now();
-        (board.make_move_noncached(amove), pre.elapsed())
-    }
-
-    fn timing_remembering_move(
-        &mut self,
-        board: &PSBoard,
-        amove: &PossibleMove,
-        counter: &FlushingCounterU32,
-    ) -> PSBoard {
-        let (ret, dur) = EngineThread::timed_move(board, amove);
-        counter.inc();
-        self.0.add(dur);
-        ret
-    }
-}
-
-impl From<&Engine> for EngineThread {
-    fn from(engine: &Engine) -> Self {
-        EngineThread(engine.scoring_timings.lock().unwrap().clone())
-    }
 }
 
 impl Engine {
@@ -147,38 +87,9 @@ impl Engine {
                 scoring_timings: Arc::new(Mutex::new(scoring_timings)),
             },
             GameState {
-                worked_on_board: initial_board_provider(),
+                worked_on_board: BoardContinuation::new(initial_board_provider()),
             },
         )
-    }
-
-    fn similar_quality_moves<'a, F>(
-        start_board: &'a PSBoard,
-        best_board: &'a PSBoard,
-        score_query: F,
-    ) -> impl Iterator<Item = &'a PSBoard>
-    where
-        F: Fn(&PSBoard) -> f32,
-    {
-        let bb_score = score_query(best_board);
-        start_board.continuation.values().filter(move |other| {
-            let other_score = score_query(other);
-            (other_score.max(bb_score) - other_score.min(bb_score)) < 0.001
-        })
-    }
-
-    fn select_similar_board<'a, F>(
-        start_board: &'a PSBoard,
-        best_board: &'a PSBoard,
-        score_query: F,
-    ) -> &'a PSBoard
-    where
-        F: Fn(&PSBoard) -> f32,
-    {
-        let choices = Engine::similar_quality_moves(start_board, best_board, &score_query).count();
-        Engine::similar_quality_moves(start_board, best_board, &score_query)
-            .nth(thread_rng().gen_range(0..choices))
-            .unwrap()
     }
 
     fn manage_counter<T, F>(to_count: F) -> (T, u32)
@@ -201,7 +112,7 @@ impl Engine {
             self.best_move_for_internal(
                 &mut state.worked_on_board,
                 deadline,
-                Engine::countdown_with_look_ahead,
+                Engine::parallel_exploration,
                 0,
                 counter,
                 &mut EngineThread::from(self),
@@ -212,33 +123,29 @@ impl Engine {
         (best_move, score, board_count)
     }
 
-    pub fn is_mate(score: f32) -> bool {
-        (score.abs() - MATE).abs() < 50.0
-    }
-
     // Determines the best move on the depth asked for
     // If the decide flag is passed, we will have the move generated, otherwise we just use this method for scoring
     fn best_move_for_internal<F>(
         &self,
-        start_board: &mut PSBoard,
+        start_board: &mut BoardContinuation,
         deadline: &Duration,
-        look_ahead_method: F,
+        exploration_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
         thread_info: &mut EngineThread,
     ) -> (Option<PossibleMove>, f32)
     where
-        F: Fn(&Self, CountdownInput) -> CountdownOutput,
+        F: Fn(&Self, ExplorationInput) -> ExplorationOutput,
     {
-        let mut ret = (None, start_board.score);
-        let mate_multiplier = match start_board.who_moves {
+        let mut ret = (None, start_board.board.score);
+        let mate_multiplier = match start_board.board.who_moves {
             White => 1.0,
             Black => -1.0,
         };
 
-        if !Engine::is_mate(start_board.score) {
+        if !is_mate(start_board.board.score) {
             let mut moves = Vec::new();
-            start_board.gen_potential_moves(true, &mut moves);
+            start_board.board.gen_potential_moves(true, &mut moves);
             let movecount = moves.len();
             //println!("Potential moves: {:?}", moves);
             let single_move_deadline = deadline
@@ -252,11 +159,11 @@ impl Engine {
             //     single_move_deadline
             // );
 
-            self.countdown(
+            self.exploration(
                 moves,
                 start_board,
                 single_move_deadline,
-                look_ahead_method,
+                exploration_method,
                 curr_depth,
                 counter,
                 thread_info,
@@ -269,9 +176,9 @@ impl Engine {
             });
             if let Some(best_board) = best_potential_board {
                 let selected_board = if best_board.adjusted_score.is_nan() {
-                    Engine::select_similar_board(start_board, best_board, |b| b.score)
+                    start_board.select_similar_board(best_board, |b| b.board.score)
                 } else {
-                    Engine::select_similar_board(start_board, best_board, |b| b.adjusted_score)
+                    start_board.select_similar_board(best_board, |b| b.adjusted_score)
                 };
                 ret = start_board
                     .continuation
@@ -281,7 +188,7 @@ impl Engine {
                             Some((
                                 Some(*amove),
                                 if selected_board.adjusted_score.is_nan() {
-                                    selected_board.score
+                                    selected_board.board.score
                                 } else {
                                     selected_board.adjusted_score
                                 },
@@ -293,52 +200,38 @@ impl Engine {
                     .unwrap();
             }
         } else {
-            start_board.adjusted_score = start_board.score;
+            start_board.adjusted_score = start_board.board.score;
         }
         ret
     }
 
-    fn countdown_without_lookahead(&self, mut a: CountdownInput) -> CountdownOutput {
-        let who = a.start_board.who_moves;
-        let mut stored_a_mate = false;
+    fn sequential_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
+        let who = a.start_board.board.who_moves;
         while let Some(curr_move) = a.moves.pop() {
-            let mut board_with_move =
+            let board_with_move =
                 a.thread_info
-                    .timing_remembering_move(&a.start_board, &curr_move, a.counter);
+                    .timing_remembering_move(&mut a.start_board, &curr_move, a.counter);
             let average_scoring_duration = a.thread_info.0.calc_average() * 40;
-            let curr_score = if !Engine::is_mate(board_with_move.score)
+            let curr_score = if !is_mate(board_with_move.board.score)
                 && (average_scoring_duration < a.single_move_deadline)
             {
                 let (_, best_score) = self.best_move_for_internal(
-                    &mut board_with_move,
+                    board_with_move,
                     &a.single_move_deadline,
-                    Engine::countdown_without_lookahead,
+                    Engine::sequential_exploration,
                     a.curr_depth + 1,
                     a.counter,
                     a.thread_info,
                 );
                 best_score
             } else {
-                board_with_move.score
+                board_with_move.board.score
             };
 
             Engine::update_max_search(who, &mut a.max_search, curr_score);
-
-            let mate_detected = Engine::is_mate(curr_score);
-            if !stored_a_mate || !mate_detected {
-                // We don't store all mates, just the first one we hit,
-                // this will allow the score eval to be correct in best_move_for_internal, but
-                // we save a lot of memory for all unnecessary continuations
-
-                a.start_board
-                    .continuation
-                    .insert(curr_move, board_with_move);
-                stored_a_mate |= mate_detected;
-            }
         }
-        CountdownOutput {
+        ExplorationOutput {
             max_search: a.max_search,
-            continuation: a.start_board.continuation,
         }
     }
 
@@ -362,42 +255,40 @@ impl Engine {
         }
     }
 
-    fn countdown<F>(
+    fn exploration<F>(
         &self,
         moves: Vec<PossibleMove>,
-        start_board: &mut PSBoard,
+        start_board: &mut BoardContinuation,
         single_move_deadline: Duration,
-        look_ahead_method: F,
+        exploration_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
         thread_info: &mut EngineThread,
     ) where
-        F: Fn(&Self, CountdownInput) -> CountdownOutput,
+        F: Fn(&Self, ExplorationInput) -> ExplorationOutput,
     {
         start_board.adjusted_score = 0.0;
-        let who = start_board.who_moves;
+        let who = start_board.board.who_moves;
         let max_search = [if who == White {
             f32::NEG_INFINITY
         } else {
             f32::INFINITY
         }; 4];
 
-        let mut tmp_b = look_ahead_method(
+        let mut max_search = exploration_method(
             self,
-            CountdownInput {
+            ExplorationInput {
                 moves,
-                start_board: start_board.clone(),
+                start_board,
                 single_move_deadline,
                 curr_depth,
                 max_search,
                 counter,
                 thread_info,
             },
-        );
+        )
+        .max_search;
 
-        start_board.continuation.append(&mut tmp_b.continuation);
-
-        let mut max_search = tmp_b.max_search;
         max_search.sort_unstable_by(if who == White {
             |a: &f32, b: &f32| a.partial_cmp(b).unwrap()
         } else {
@@ -412,7 +303,7 @@ impl Engine {
             max_search[idx] = max_search[use_source_idx] * (idx * 2 + 1) as f32;
             // Weighted towards the best scores
         }
-        start_board.adjusted_score = (start_board.score
+        start_board.adjusted_score = (start_board.board.score
             + max_search
                 .iter()
                 .filter(|a_score| a_score.is_finite())
@@ -420,29 +311,29 @@ impl Engine {
             / 17f32; // sum of all weights + 1 for the start_board's base score.
     }
 
-    fn countdown_with_look_ahead(&self, mut a: CountdownInput) -> CountdownOutput {
+    fn parallel_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
         thread::scope(|s| {
-            let who = a.start_board.who_moves;
+            let who = a.start_board.board.who_moves;
 
             let mut joins = Vec::new();
             let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
 
             while let Some(curr_move) = a.moves.pop() {
                 let join_a = s.spawn({
-                    let board_clone = a.start_board.clone();
+                    let mut board_clone = a.start_board.clone();
                     let engine_clone = self.clone();
                     let mut thread_info_clone = a.thread_info.clone();
                     move || {
                         // println!("{:3?} working on {curr_move}", thread::current().id());
-                        let mut board_with_move = thread_info_clone.timing_remembering_move(
-                            &board_clone,
+                        let board_with_move = thread_info_clone.timing_remembering_move(
+                            &mut board_clone,
                             &curr_move,
                             a.counter,
                         );
                         let (_, curr_score) = engine_clone.best_move_for_internal(
-                            &mut board_with_move,
+                            board_with_move,
                             &single_thread_deadline,
-                            Engine::countdown_without_lookahead,
+                            Engine::sequential_exploration,
                             a.curr_depth + 1,
                             a.counter,
                             &mut thread_info_clone,
@@ -450,7 +341,7 @@ impl Engine {
                         a.counter.flush();
                         (
                             curr_score,
-                            board_with_move,
+                            board_clone,
                             curr_move,
                             thread_info_clone.0.calc_average(),
                         )
@@ -461,7 +352,8 @@ impl Engine {
             }
 
             for join in joins {
-                let (curr_score, board_with_move, curr_move, timing_average) = join.join().unwrap();
+                let (curr_score, mut board_with_move, curr_move, timing_average) =
+                    join.join().unwrap();
                 // println!("Timings: {timing_average:?} for {curr_move}");
                 Engine::update_max_search(who, &mut a.max_search, curr_score);
                 {
@@ -472,16 +364,16 @@ impl Engine {
                 let width = a.curr_depth as usize;
                 println!(
                     "{:width$} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                    "", board_with_move.score, board_with_move.adjusted_score
+                    "", board_with_move.board.score, board_with_move.adjusted_score
                 );
 
-                a.start_board
-                    .continuation
-                    .insert(curr_move, board_with_move);
+                a.start_board.continuation.insert(
+                    curr_move,
+                    board_with_move.continuation.remove(&curr_move).unwrap(),
+                );
             }
-            CountdownOutput {
+            ExplorationOutput {
                 max_search: a.max_search,
-                continuation: a.start_board.continuation,
             }
         })
     }
@@ -505,11 +397,11 @@ mod test {
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
         Engine::manage_counter(|counter| {
-            engine.countdown(
+            engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
                 Duration::from_millis(100),
-                Engine::countdown_with_look_ahead,
+                Engine::parallel_exploration,
                 0,
                 counter,
                 &mut thread_info,
@@ -538,11 +430,11 @@ mod test {
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
         Engine::manage_counter(|counter| {
-            engine.countdown(
+            engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
                 Duration::from_millis(100),
-                Engine::countdown_with_look_ahead,
+                Engine::parallel_exploration,
                 0,
                 counter,
                 &mut thread_info,
@@ -561,11 +453,11 @@ mod test {
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
         Engine::manage_counter(|counter| {
-            engine.countdown(
+            engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
                 Duration::from_millis(1000),
-                Engine::countdown_with_look_ahead,
+                Engine::parallel_exploration,
                 0,
                 counter,
                 &mut thread_info,
@@ -633,5 +525,29 @@ mod test {
         assert!(acceptable_moves
             .iter()
             .any(|acceptable| acceptable.eq(&the_move)));
+    }
+
+    #[test]
+    fn retain_boards() {
+        let (engine, mut gamestate) = Engine::new();
+        let short_deadline = Duration::from_millis(1);
+        engine.best_move_for(&mut gamestate, &short_deadline);
+        let a_selected_move = *gamestate
+            .worked_on_board
+            .continuation
+            .keys()
+            .next()
+            .unwrap();
+        let continuations_before = helper::total_continuation_boards(
+            gamestate
+                .worked_on_board
+                .continuation
+                .get(&a_selected_move)
+                .unwrap(),
+        );
+        gamestate.make_a_generated_move(&a_selected_move);
+        let (_, _, board_count) = engine.best_move_for(&mut gamestate, &short_deadline);
+        let continuations_after = helper::total_continuation_boards(&gamestate.worked_on_board);
+        assert_eq!(continuations_after - continuations_before, board_count);
     }
 }

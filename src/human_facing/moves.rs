@@ -20,16 +20,16 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor::White;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
-use std::error::Error;
+use crate::engine::continuation::BoardContinuation;
+use crate::util::IntResult;
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
-pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard> {
+pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<BoardContinuation> {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
     let mut col = Vec::new();
@@ -44,7 +44,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
     }
     if castling {
         let castle_type = the_move.split('-').count();
-        let castle_row = if board.who_moves == White { 0 } else { 7 };
+        let castle_row = if board.board.who_moves == White { 0 } else { 7 };
         if castle_type == 2 {
             //short
             internal_move = Some(PossibleMove {
@@ -100,13 +100,13 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
             }
         }
         let mut all_moves = Vec::new();
-        board.gen_potential_moves(false, &mut all_moves);
+        board.board.gen_potential_moves(false, &mut all_moves);
         if row.len() == 1 {
             if col.len() == 1 {
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 // regular move
                 for a_move in all_moves {
-                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                    let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
                     if moving_piece.kind == piece_kind
                         && a_move.the_move.to.0 == target.0
                         && a_move.the_move.to.1 == target.1
@@ -133,7 +133,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
                 let target = (row.pop().unwrap(), col.pop().unwrap());
                 let source_col = col.pop().unwrap();
                 for a_move in all_moves {
-                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                    let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
                     if moving_piece.kind == piece_kind
                         && a_move.the_move.from.1 == source_col
                         && a_move.the_move.to.0 == target.0
@@ -162,7 +162,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
             let target = (row.pop().unwrap(), col.pop().unwrap());
             let source_row = row.pop().unwrap();
             for a_move in all_moves {
-                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
                 if moving_piece.kind == piece_kind
                     && a_move.the_move.from.0 == source_row
                     && a_move.the_move.to.0 == target.0
@@ -176,7 +176,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
             let target = (row.pop().unwrap(), col.pop().unwrap());
             let source = (row.pop().unwrap(), col.pop().unwrap());
             for a_move in all_moves {
-                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
+                let moving_piece = board.board.get_loc(a_move.the_move.from).as_ref().unwrap();
                 if moving_piece.kind == piece_kind
                     && a_move.the_move.from.0 == source.0
                     && a_move.the_move.from.1 == source.1
@@ -189,7 +189,7 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
             }
         }
     }
-    internal_move.map(|im| board.make_a_move(&im))
+    internal_move.map(|im| board.make_cached_move(&im))
 }
 
 /// Allows moves to be translated from lichess to our internal representation
@@ -200,17 +200,18 @@ pub fn make_a_human_move(board: &mut PSBoard, the_move: &str) -> Option<PSBoard>
 /// # Example
 /// ```
 /// use dbce::baserules::board::PSBoard;
+/// use dbce::engine::continuation::BoardContinuation;
 /// use dbce::human_facing::moves::make_an_uci_move;
-/// let mut opera_game = PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17");
-/// let opera_result = make_an_uci_move(&mut opera_game, "d1d8").unwrap();
+/// let opera_game = BoardContinuation::new(PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17"));
+/// let opera_result = make_an_uci_move(opera_game, "d1d8").unwrap();
 /// assert_eq!("1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17", opera_result.to_fen());
 /// ```
-pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, Box<dyn Error>> {
+pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<BoardContinuation> {
     let len = the_move.len();
     assert!(len < 6 && len > 3);
     let raw_move = the_move.as_bytes();
     let the_move = BaseMove::from_uci(the_move)?;
-    Ok(board.make_a_move(&if len == 5 {
+    let the_complete_move = if len == 5 {
         let promote_kind = PieceKind::from_char(raw_move[4] as char);
         PossibleMove {
             the_move,
@@ -218,13 +219,13 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, 
             rook: None,
         }
     } else {
-        let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
+        let moving_piece = board.board.get_loc(the_move.from).as_ref().unwrap();
         let rook_from = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 });
         let rook_to = BoardPos(the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 });
         PossibleMove {
             the_move,
             pawn_promotion: None,
-            rook: if !board.castling.is_empty()
+            rook: if !board.board.castling.is_empty()
                 && (the_move.to.0 == 0 || the_move.to.0 == 7)
                 && the_move.from.1 == 4
                 && (the_move.to.1 == 6 || the_move.to.1 == 2)
@@ -238,22 +239,25 @@ pub fn make_an_uci_move(board: &mut PSBoard, the_move: &str) -> Result<PSBoard, 
                 None
             },
         }
-    }))
+    };
+    Ok(board.make_cached_move(&the_complete_move))
 }
 
 #[cfg(test)]
 mod test {
     use crate::baserules::board::PSBoard;
+    use crate::engine::continuation::BoardContinuation;
     use crate::human_facing::moves::make_a_human_move;
 
     #[test]
     fn test_rook_takes() {
-        let mut board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30");
-        let result = make_a_human_move(&mut board, "Rcxc8");
+        let board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30");
+        let cont = BoardContinuation::new(board);
+        let result = make_a_human_move(cont, "Rcxc8");
         assert!(result.is_some());
         assert_eq!(
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
-            result.unwrap().to_fen()
+            result.unwrap().board.to_fen()
         );
     }
 }

@@ -22,8 +22,8 @@
  */
 
 use crate::baserules::piece_kind::PieceKind;
+use crate::util::{AnyError, IntResult};
 use std::cmp::Ordering;
-use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 
@@ -34,7 +34,7 @@ use std::str::FromStr;
 pub struct BoardPos(pub i8, pub i8);
 
 impl FromStr for BoardPos {
-    type Err = Box<dyn Error>;
+    type Err = AnyError;
 
     fn from_str(coord: &str) -> Result<Self, Self::Err> {
         Ok(BoardPos(
@@ -78,7 +78,7 @@ impl BaseMove {
     /// assert!(potential_parsed_rook_move.is_ok());
     /// assert_eq!(rook_a3, potential_parsed_rook_move.unwrap());
     /// ```
-    pub fn from_uci(uci: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn from_uci(uci: &str) -> IntResult<Self> {
         Ok(Self {
             from: BoardPos::from_str(&uci[0..2])?,
             to: BoardPos::from_str(&uci[2..4])?,
@@ -106,18 +106,6 @@ impl Ord for PossibleMove {
     fn cmp(&self, other: &Self) -> Ordering {
         self.the_move.to_u32().cmp(&other.the_move.to_u32())
     }
-
-    fn max(self, _: Self) -> Self {
-        todo!()
-    }
-
-    fn min(self, _: Self) -> Self {
-        todo!()
-    }
-
-    fn clamp(self, _: Self, _: Self) -> Self {
-        todo!()
-    }
 }
 
 impl PossibleMove {
@@ -130,8 +118,8 @@ impl PossibleMove {
     /// let a_move = PossibleMove::simple_move(BaseMove::from_uci(uci).unwrap());
     /// assert_eq!(uci, format!("{a_move}"));
     /// ```
-    pub fn simple_move(base: BaseMove) -> PossibleMove {
-        PossibleMove {
+    pub fn simple_move(base: BaseMove) -> Self {
+        Self {
             the_move: base,
             ..Default::default()
         }
@@ -146,14 +134,14 @@ impl PossibleMove {
     /// let a_move = PossibleMove::simple_from_uci(uci).unwrap();
     /// assert_eq!(uci, format!("{a_move}"));
     /// ```
-    pub fn simple_from_uci(uci: &str) -> Result<PossibleMove, Box<dyn Error>> {
+    pub fn simple_from_uci(uci: &str) -> IntResult<PossibleMove> {
         Ok(PossibleMove::simple_move(BaseMove::from_uci(uci)?))
     }
 }
 
 impl Default for PossibleMove {
     fn default() -> Self {
-        PossibleMove {
+        Self {
             the_move: BaseMove {
                 from: BoardPos(0, 0),
                 to: BoardPos(1, 0),

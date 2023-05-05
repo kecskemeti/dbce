@@ -20,8 +20,9 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use dbce::baserules::board::MATE;
-use dbce::engine::{Engine, GameState};
+use dbce::baserules::rawboard::is_mate;
+use dbce::engine::gamestate::GameState;
+use dbce::engine::Engine;
 use dbce::human_facing::helper::calculate_move_for_console;
 use lazy_static::lazy_static;
 use rand::{thread_rng, Rng};
@@ -59,8 +60,8 @@ fn main() {
     if machine_moves_first {
         make_machine_move(&engine, &mut gamestate);
     }
-    while (gamestate.get_board().score.abs() - MATE).abs() > 1.0 {
-        println!("Current board: {}", gamestate.get_board());
+    while !is_mate(gamestate.get_board().board.score) {
+        println!("Current board: {}", gamestate.get_board().board);
         loop {
             println!("What's your move?");
             let mut line = String::new();
@@ -72,7 +73,7 @@ fn main() {
             }
             println!("Sorry, I can't understand {line}");
         }
-        println!("Current board: {}", gamestate.get_board());
+        println!("Current board: {}", gamestate.get_board().board);
         make_machine_move(&engine, &mut gamestate);
     }
 }

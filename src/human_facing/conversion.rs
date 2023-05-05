@@ -31,7 +31,6 @@ use crate::baserules::piece_kind::PieceKind::*;
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
 use enumset::EnumSet;
-use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
 impl PieceState {
@@ -197,8 +196,7 @@ impl PSBoard {
             }
         }
         PSBoard {
-            score: PSBoard::score_raw(&raw),
-            adjusted_score: f32::NAN,
+            score: raw.score(),
             board: raw,
             who_moves: if let Some(mover) = next_move {
                 mover
@@ -217,7 +215,6 @@ impl PSBoard {
             } else {
                 panic!("Unspecified half move count")
             },
-            continuation: BTreeMap::new(),
         }
     }
 

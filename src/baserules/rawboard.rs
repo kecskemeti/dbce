@@ -22,13 +22,22 @@
  */
 
 use crate::baserules::board_rep::BoardPos;
+use crate::baserules::piece_color::PieceColor::{Black, White};
+use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
 use std::ops;
+
+pub static MATE: f32 = 1000.0;
+
+pub fn is_mate(score: f32) -> bool {
+    (score.abs() - MATE).abs() < 50.0
+}
 
 #[derive(Clone, Copy)]
 pub struct RawBoard([u32; 8]);
 
 impl RawBoard {
+    #[inline]
     pub fn empty() -> Self {
         RawBoard([0; 8])
     }
@@ -40,6 +49,56 @@ impl RawBoard {
         let a_row = self.0[us_row] & piece_mask;
         let a_bit_piece = (PieceState::bits(piece) as u32) << shift_amount;
         self.0[us_row] = a_row | a_bit_piece;
+    }
+
+    /// A simple scoring mechanism which just counts up the pieces and pawns based on their usual values
+    ///
+    /// # Example use
+    /// Each `PSBoard` has its score automatically calculated with this method during creation, so this is an indirect demonstration.
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::rawboard::{MATE};
+    /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5");
+    /// assert_eq!(MATE, scholars_mate.board.score());
+    /// ```
+    pub fn score(&self) -> f32 {
+        let (loc_score, white_king_found, black_king_found) = self
+            .into_iter()
+            .filter_map(|c_p| *c_p)
+            .map(|curr_piece| match (curr_piece.kind, curr_piece.color) {
+                (Pawn, White) => (1f32, false, false),
+                (Pawn, Black) => (-1f32, false, false),
+                (Knight, White) => (3f32, false, false),
+                (Knight, Black) => (-3f32, false, false),
+                (Bishop, White) => (3.1f32, false, false),
+                (Bishop, Black) => (-3.1f32, false, false),
+                (Rook, White) => (5f32, false, false),
+                (Rook, Black) => (-5f32, false, false),
+                (Queen, White) => (9f32, false, false),
+                (Queen, Black) => (-9f32, false, false),
+                (King, White) => (0f32, true, false),
+                (King, Black) => (0f32, false, true),
+            })
+            .fold(
+                (0f32, false, false),
+                |(curr_score, curr_white_king, curr_black_king),
+                 (score_adjust, white_king, black_king)| {
+                    (
+                        curr_score + score_adjust,
+                        curr_white_king | white_king,
+                        curr_black_king | black_king,
+                    )
+                },
+            );
+        if white_king_found {
+            if black_king_found {
+                loc_score
+            } else {
+                MATE
+            }
+        } else {
+            -MATE
+        }
     }
 }
 
@@ -61,40 +120,36 @@ impl<'a> IntoIterator for &'a RawBoard {
     fn into_iter(self) -> Self::IntoIter {
         RawBoardIterator {
             raw_board: self,
-            curr_row_data: self.0[0],
-            curr_row: 0,
-            curr_col: 0,
+            curr_idx: 0,
         }
     }
 }
 
 pub struct RawBoardIterator<'a> {
     raw_board: &'a RawBoard,
-    curr_row_data: u32,
-    curr_row: usize,
-    curr_col: usize,
+    curr_idx: usize,
 }
 
 impl<'a> Iterator for RawBoardIterator<'a> {
     type Item = &'a Option<PieceState>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_col == 8 {
-            self.curr_row += 1;
-            if self.curr_row == 8 {
-                return None;
-            }
-            self.curr_row_data = self.raw_board.0[self.curr_row];
-            self.curr_col = 0;
+        if self.curr_idx == 64 {
+            None
+        } else {
+            let ret = PieceState::from_u8(
+                (0b1111
+                    & (unsafe { *self.raw_board.0.get_unchecked(self.curr_idx >> 3) }
+                        >> ((self.curr_idx & 0b111) << 2))) as u8,
+            );
+            self.curr_idx += 1;
+            Some(ret)
         }
-        let ret = PieceState::from_u8((self.curr_row_data & 0b1111) as u8);
-        self.curr_col += 1;
-        self.curr_row_data >>= 4;
-        Some(ret)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remainder = 64 - self.curr_row * 8 - self.curr_col;
+        let remainder = 64 - self.curr_idx;
         (remainder, Some(remainder))
     }
 }

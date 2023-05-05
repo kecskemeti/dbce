@@ -33,9 +33,6 @@ use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen,
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
 use enumset::{enum_set, EnumSet, EnumSetType};
-use std::collections::BTreeMap;
-
-pub static MATE: f32 = 1000.0;
 
 #[derive(EnumSetType, Debug)]
 pub enum Castling {
@@ -78,10 +75,6 @@ pub struct PSBoard {
     pub half_moves_since_pawn: u16,
     /// The estimated score of this board, without considering its possible continuations
     pub score: f32,
-    /// The overall expected score of this board after considering the continuations
-    pub adjusted_score: f32,
-    /// If we have calculated a few positions ahead from this board, we store these positions here
-    pub continuation: BTreeMap<PossibleMove, PSBoard>,
 }
 
 impl Default for PSBoard {
@@ -134,39 +127,11 @@ impl Default for PSBoard {
             move_count: 0,
             half_moves_since_pawn: 0,
             score: 0f32,
-            adjusted_score: f32::NAN,
-            continuation: BTreeMap::new(),
         }
     }
 }
 
 impl PSBoard {
-    /// Makes a move as per the internal representation
-    /// Note that the move is not really checked for validity
-    /// We might recall a previously calculated board if a continuation with the move was already found
-    /// # Panics
-    /// If there is a request to make a move for a piece that does not exist on the board
-    ///
-    /// # Example
-    /// ```
-    /// use dbce::baserules::board::PSBoard;
-    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
-    /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
-    /// let bishop_moves = PossibleMove::simple_from_uci("f1b5").unwrap();
-    /// let ruy_lopez = kings_knight_opening.make_a_move(&bishop_moves);
-    /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
-    /// ```
-    pub fn make_a_move(&mut self, the_move: &PossibleMove) -> PSBoard {
-        let the_new_board = self.continuation.remove(the_move);
-        if let Some(precalculated_board) = the_new_board {
-            // we have already pre-calculated the move before
-            precalculated_board
-        } else {
-            // This is an unexpected move, or part of pre-calculation
-            self.make_move_noncached(the_move)
-        }
-    }
-
     /// Makes a move as per the internal representation
     /// Note that the move is not really checked for validity
     /// We will produce a completely new internal board representation as the result of the move
@@ -183,7 +148,7 @@ impl PSBoard {
     /// let ruy_lopez = kings_knight_opening.make_move_noncached(&bishop_moves);
     /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
     /// ```
-    pub fn make_move_noncached(&self, the_move: &PossibleMove) -> PSBoard {
+    pub fn make_move_noncached(&self, the_move: &PossibleMove) -> Self {
         let mut raw_board = self.board;
         let piece_potentially_taken = self.get_loc(the_move.the_move.to);
         {
@@ -218,8 +183,7 @@ impl PSBoard {
         raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
         let current_piece = raw_board[the_move.the_move.to].unwrap();
         PSBoard {
-            score: PSBoard::score_raw(&raw_board),
-            adjusted_score: f32::NAN,
+            score: raw_board.score(),
             board: raw_board,
             who_moves: match current_piece.color {
                 White => Black,
@@ -248,7 +212,6 @@ impl PSBoard {
                 self.half_moves_since_pawn + 1
             },
             move_count: self.move_count + u16::from(current_piece.color == Black),
-            continuation: BTreeMap::new(),
         }
     }
 
@@ -323,55 +286,6 @@ impl PSBoard {
     #[inline]
     pub fn get_loc(&self, BoardPos(row, col): BoardPos) -> &Option<PieceState> {
         &self.board[BoardPos(row, col)]
-    }
-
-    /// A simple scoring mechanism which just counts up the pieces and pawns based on their usual values
-    ///
-    /// # Example use
-    /// Each `PSBoard` has its score automatically calculated with this method during creation, so this is an indirect demonstration.
-    /// ```
-    /// use dbce::baserules::board::{MATE, PSBoard};
-    /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5");
-    /// assert_eq!(MATE, scholars_mate.score);
-    /// ```
-    pub(crate) fn score_raw(board: &RawBoard) -> f32 {
-        let (loc_score, white_king_found, black_king_found) = board
-            .into_iter()
-            .filter_map(|c_p| *c_p)
-            .map(|curr_piece| match (curr_piece.kind, curr_piece.color) {
-                (Pawn, White) => (1f32, false, false),
-                (Pawn, Black) => (-1f32, false, false),
-                (Knight, White) => (3f32, false, false),
-                (Knight, Black) => (-3f32, false, false),
-                (Bishop, White) => (3.1f32, false, false),
-                (Bishop, Black) => (-3.1f32, false, false),
-                (Rook, White) => (5f32, false, false),
-                (Rook, Black) => (-5f32, false, false),
-                (Queen, White) => (9f32, false, false),
-                (Queen, Black) => (-9f32, false, false),
-                (King, White) => (0f32, true, false),
-                (King, Black) => (0f32, false, true),
-            })
-            .fold(
-                (0f32, false, false),
-                |(curr_score, curr_white_king, curr_black_king),
-                 (score_adjust, white_king, black_king)| {
-                    (
-                        curr_score + score_adjust,
-                        curr_white_king | white_king,
-                        curr_black_king | black_king,
-                    )
-                },
-            );
-        if white_king_found {
-            if black_king_found {
-                loc_score
-            } else {
-                MATE
-            }
-        } else {
-            -MATE
-        }
     }
 }
 
@@ -464,7 +378,7 @@ mod test {
     fn move_castling() {
         let mut prep_for_castle =
             PSBoard::from_fen("rnbqk2r/pppp1ppp/3bpn2/8/8/3BPN2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
-        let after_move = prep_for_castle.make_a_move(&PossibleMove {
+        let after_move = prep_for_castle.make_move_noncached(&PossibleMove {
             the_move: BaseMove::from_uci("e1g1").unwrap(),
             pawn_promotion: None,
             rook: Some(BaseMove::from_uci("h1f1").unwrap()),

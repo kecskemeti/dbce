@@ -27,11 +27,17 @@ rayon = "1.7"
 
 [profile.release]
 debug = 1
-lto = true
+lto = "thin"
+#strip = true
+#panic = "abort"
 
 [dev-dependencies]
 criterion = "0.4.0"
 
+#[[bench]]
+#name = "max_depth"
+#harness = false
+
 [[bench]]
-name = "max_depth"
+name = "raw_iter"
 harness = false
