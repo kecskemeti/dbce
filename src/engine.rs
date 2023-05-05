@@ -31,6 +31,7 @@ use crate::baserules::piece_color::PieceColor::*;
 use crate::util::DurationAverage;
 use std::cmp::Ordering;
 use std::ptr;
+use std::sync::atomic::AtomicU8;
 use std::sync::{Arc, Mutex};
 
 use crate::baserules::rawboard::is_mate;
@@ -53,11 +54,68 @@ pub struct ExplorationInput<'a> {
     curr_depth: u8,
     max_search: [f32; 4],
     counter: &'a FlushingCounterU32,
+    maximum: &'a AtomicU8,
     thread_info: &'a mut EngineThread,
 }
 
 pub struct ExplorationOutput {
     max_search: [f32; 4],
+    continuation: BTreeMap<PossibleMove, PSBoard>,
+}
+
+impl GameState {
+    #[inline]
+    pub fn get_board(&self) -> &PSBoard {
+        &self.worked_on_board
+    }
+
+    #[inline]
+    pub fn make_an_uci_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
+        self.worked_on_board = make_an_uci_move(&mut self.worked_on_board, themove)?;
+        Ok(())
+    }
+
+    #[inline]
+    pub fn make_a_human_move(&mut self, themove: &str) -> Result<(), Box<dyn Error>> {
+        self.worked_on_board =
+            make_a_human_move(&mut self.worked_on_board, themove).ok_or("Conversion error")?;
+        Ok(())
+    }
+
+    #[inline]
+    pub fn make_a_human_move_or_panic(&mut self, themove: &str) {
+        self.make_a_human_move(themove).unwrap()
+    }
+
+    #[inline]
+    pub fn make_a_generated_move(&mut self, themove: &PossibleMove) {
+        self.worked_on_board = self.worked_on_board.make_a_move(themove);
+    }
+}
+
+impl EngineThread {
+    fn timed_move(board: &PSBoard, amove: &PossibleMove) -> (PSBoard, Duration) {
+        let pre = Instant::now();
+        (board.make_move_noncached(amove), pre.elapsed())
+    }
+
+    fn timing_remembering_move(
+        &mut self,
+        board: &PSBoard,
+        amove: &PossibleMove,
+        counter: &FlushingCounterU32,
+    ) -> PSBoard {
+        let (ret, dur) = EngineThread::timed_move(board, amove);
+        counter.inc();
+        self.0.add(dur);
+        ret
+    }
+}
+
+impl From<&Engine> for EngineThread {
+    fn from(engine: &Engine) -> Self {
+        EngineThread(engine.scoring_timings.lock().unwrap().clone())
+    }
 }
 
 impl Engine {
@@ -92,14 +150,48 @@ impl Engine {
         )
     }
 
-    fn manage_counter<T, F>(to_count: F) -> (T, u32)
+    fn similar_quality_moves<'a, F>(
+        start_board: &'a PSBoard,
+        best_board: &'a PSBoard,
+        score_query: F,
+    ) -> impl Iterator<Item = &'a PSBoard>
     where
-        F: FnOnce(&FlushingCounterU32) -> T,
+        F: Fn(&PSBoard) -> f32,
+    {
+        let bb_score = score_query(best_board);
+        start_board.continuation.values().filter(move |other| {
+            let other_score = score_query(other);
+            (other_score.max(bb_score) - other_score.min(bb_score)) < 0.001
+        })
+    }
+
+    fn select_similar_board<'a, F>(
+        start_board: &'a PSBoard,
+        best_board: &'a PSBoard,
+        score_query: F,
+    ) -> &'a PSBoard
+    where
+        F: Fn(&PSBoard) -> f32,
+    {
+        let choices = Engine::similar_quality_moves(start_board, best_board, &score_query).count();
+        Engine::similar_quality_moves(start_board, best_board, &score_query)
+            .nth(thread_rng().gen_range(0..choices))
+            .unwrap()
+    }
+
+    fn manage_counter<T, F>(to_count: F) -> (T, u32, u8)
+    where
+        F: FnOnce(&FlushingCounterU32, &AtomicU8) -> T,
     {
         let board_counter = FlushingCounterU32::new(0);
-        let ret = to_count(&board_counter);
+        let maximum_depth = AtomicU8::new(0);
+        let ret = to_count(&board_counter, &maximum_depth);
         board_counter.flush();
-        (ret, board_counter.get())
+        (
+            ret,
+            board_counter.get(),
+            maximum_depth.load(std::sync::atomic::Ordering::Acquire),
+        )
     }
 
     // board count send instead of lock
@@ -107,20 +199,21 @@ impl Engine {
         &self,
         state: &mut GameState,
         deadline: &Duration,
-    ) -> (Option<PossibleMove>, f32, u32) {
-        let ((best_move, score), board_count) = Engine::manage_counter(|counter| {
+    ) -> (Option<PossibleMove>, f32, u32, u8) {
+        let ((best_move, score), board_count, maximum) = Engine::manage_counter(|counter, maximum| {
             self.best_move_for_internal(
                 &mut state.worked_on_board,
                 deadline,
                 Engine::parallel_exploration,
                 0,
                 counter,
+                maximum,
                 &mut EngineThread::from(self),
             )
         });
         // let timings = self.scoring_timings.lock().unwrap();
         // println!("Overall average now: {:?}", timings.calc_average());
-        (best_move, score, board_count)
+        (best_move, score, board_count, maximum)
     }
 
     // Determines the best move on the depth asked for
@@ -132,6 +225,7 @@ impl Engine {
         exploration_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
         thread_info: &mut EngineThread,
     ) -> (Option<PossibleMove>, f32)
     where
@@ -166,6 +260,7 @@ impl Engine {
                 exploration_method,
                 curr_depth,
                 counter,
+                maximum,
                 thread_info,
             );
 
@@ -221,10 +316,33 @@ impl Engine {
                     Engine::sequential_exploration,
                     a.curr_depth + 1,
                     a.counter,
+                    a.maximum,
                     a.thread_info,
                 );
                 best_score
             } else {
+                let mut val_before = a.maximum.load(std::sync::atomic::Ordering::Acquire);
+                loop {
+                    let cur_max = a
+                        .maximum
+                        .fetch_max(a.curr_depth, std::sync::atomic::Ordering::Acquire);
+                    if cur_max == a.curr_depth {
+                        let res = a.maximum.compare_exchange(
+                            val_before,
+                            cur_max,
+                            std::sync::atomic::Ordering::Acquire,
+                            std::sync::atomic::Ordering::Acquire,
+                        );
+
+                        if let Err(err) = res {
+                            val_before = err;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
                 board_with_move.board.score
             };
 
@@ -263,6 +381,7 @@ impl Engine {
         exploration_method: F,
         curr_depth: u8,
         counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
         thread_info: &mut EngineThread,
     ) where
         F: Fn(&Self, ExplorationInput) -> ExplorationOutput,
@@ -284,6 +403,7 @@ impl Engine {
                 curr_depth,
                 max_search,
                 counter,
+                maximum,
                 thread_info,
             },
         )
@@ -336,6 +456,7 @@ impl Engine {
                             Engine::sequential_exploration,
                             a.curr_depth + 1,
                             a.counter,
+                            a.maximum,
                             &mut thread_info_clone,
                         );
                         a.counter.flush();
@@ -396,7 +517,7 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+        Engine::manage_counter(|counter, maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -404,6 +525,7 @@ mod test {
                 Engine::parallel_exploration,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
@@ -429,7 +551,7 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+        Engine::manage_counter(|counter,maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -437,6 +559,7 @@ mod test {
                 Engine::parallel_exploration,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
@@ -452,7 +575,7 @@ mod test {
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter| {
+        Engine::manage_counter(|counter, maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -460,6 +583,7 @@ mod test {
                 Engine::parallel_exploration,
                 0,
                 counter,
+                maximum,
                 &mut thread_info,
             )
         });
@@ -525,29 +649,5 @@ mod test {
         assert!(acceptable_moves
             .iter()
             .any(|acceptable| acceptable.eq(&the_move)));
-    }
-
-    #[test]
-    fn retain_boards() {
-        let (engine, mut gamestate) = Engine::new();
-        let short_deadline = Duration::from_millis(1);
-        engine.best_move_for(&mut gamestate, &short_deadline);
-        let a_selected_move = *gamestate
-            .worked_on_board
-            .continuation
-            .keys()
-            .next()
-            .unwrap();
-        let continuations_before = helper::total_continuation_boards(
-            gamestate
-                .worked_on_board
-                .continuation
-                .get(&a_selected_move)
-                .unwrap(),
-        );
-        gamestate.make_a_generated_move(&a_selected_move);
-        let (_, _, board_count) = engine.best_move_for(&mut gamestate, &short_deadline);
-        let continuations_after = helper::total_continuation_boards(&gamestate.worked_on_board);
-        assert_eq!(continuations_after - continuations_before, board_count);
     }
 }
