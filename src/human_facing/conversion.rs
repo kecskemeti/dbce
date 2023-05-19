@@ -25,6 +25,7 @@ use crate::baserules::board::Castling::{
 };
 use crate::baserules::board::{Castling, PSBoard};
 use crate::baserules::board_rep::BoardPos;
+use crate::baserules::move_gen::{CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
@@ -202,6 +203,11 @@ impl PSBoard {
                 mover
             } else {
                 panic!("Unspecified whose turn it is!")
+            },
+            resolver: if castling.is_empty() {
+                &CASTLE_FORBIDDEN
+            } else {
+                &CASTLE_ALLOWED
             },
             castling,
             ep,

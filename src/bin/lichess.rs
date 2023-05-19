@@ -43,12 +43,12 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
     let mut resp = lichess_api_call(getrq).await?.bytes_stream();
     let mut ourcolor = None;
     let mut prevopponentmove = Instant::now();
-    let mut ourmovetime = Duration::from_secs(3);
+    let mut ourmovetime = Duration::from_millis(3);
     let mut opponent = None;
     let mut toignore = None;
     let mut impossiblemove = None;
     let (engine, mut state) = Engine::new();
-    let mut lichesstiming = DurationAverage::new(50, || Duration::from_secs(1));
+    let mut lichesstiming = DurationAverage::new(50, || Duration::from_millis(1));
     while let Some(Ok(bytes)) = resp.next().await {
         let start = Instant::now();
         if let Ok(gamestate) = serde_json::from_slice(&bytes) {
@@ -178,7 +178,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
             // Chat is not supported
         } else {
             // Unparsable json, this is most likely a lichess 6 second refresh
-            static FIVE_MINS: Duration = Duration::from_secs(300);
+            static FIVE_MINS: Duration = Duration::from_millis(300);
             if (prevopponentmove.elapsed().saturating_sub(ourmovetime)) > FIVE_MINS {
                 // we have not had a move from our opponent for over 5 mins.
                 // we will just cancel the game

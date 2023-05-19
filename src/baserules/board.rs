@@ -32,7 +32,10 @@ use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
+
 use enumset::{enum_set, EnumSet, EnumSetType};
+
+use super::move_gen::{KingMove, CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 
 #[derive(EnumSetType, Debug)]
 pub enum Castling {
@@ -59,7 +62,6 @@ pub const fn kingside_castle() -> EnumSet<Castling> {
 }
 
 /// The internal representation of the chessboard after a given move.
-#[derive(Clone)]
 pub struct PSBoard {
     /// The actual board with the 8x8 squares
     pub board: RawBoard,
@@ -67,6 +69,8 @@ pub struct PSBoard {
     pub who_moves: PieceColor,
     /// Tells what kind of castling is allowed
     pub castling: EnumSet<Castling>,
+    /// move resolver
+    pub(crate) resolver: &'static dyn KingMove,
     /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<BoardPos>,
     /// The number of moves done so far
@@ -127,6 +131,7 @@ impl Default for PSBoard {
             move_count: 0,
             half_moves_since_pawn: 0,
             score: 0f32,
+            resolver: &CASTLE_ALLOWED,
         }
     }
 }
@@ -182,7 +187,14 @@ impl PSBoard {
         }
         raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
         let current_piece = raw_board[the_move.the_move.to].unwrap();
+        let castling =
+            self.determine_castling_rights(&current_piece, the_move, piece_potentially_taken);
         PSBoard {
+            resolver: if castling.is_empty() {
+                &CASTLE_FORBIDDEN
+            } else {
+                &CASTLE_ALLOWED
+            },
             score: raw_board.score(),
             board: raw_board,
             who_moves: match current_piece.color {
@@ -199,11 +211,7 @@ impl PSBoard {
             } else {
                 None
             },
-            castling: self.determine_castling_rights(
-                &current_piece,
-                the_move,
-                piece_potentially_taken,
-            ),
+            castling,
             half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
                 0
             } else if piece_potentially_taken.is_some() {
