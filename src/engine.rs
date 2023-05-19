@@ -218,10 +218,17 @@ impl Engine {
 
     fn sequential_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
         let who = a.start_board.who_moves;
+        let width = a.curr_depth as usize;
         while let Some(curr_move) = a.moves.pop() {
+            println!("{:width$} Start Board: {}", "", a.start_board.board);
+            println!("{:width$} Exploring move: {curr_move}", "");
             let board_with_move =
                 a.thread_info
                     .timing_remembering_move(a.start_board, &curr_move, a.counter);
+            println!(
+                "{:width$} Resulting Board: {} SCORE:{}",
+                "", board_with_move.board, board_with_move.score
+            );
             let average_scoring_duration = a.thread_info.0.calc_average() * 40;
             let curr_score = if !is_mate(board_with_move.score)
                 && (average_scoring_duration < a.single_move_deadline)
@@ -353,6 +360,7 @@ impl Engine {
 
             let mut joins = Vec::new();
             let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
+            let width = a.curr_depth as usize;
 
             while let Some(curr_move) = a.moves.pop() {
                 let join_a = s.spawn({
@@ -361,10 +369,16 @@ impl Engine {
                     let mut thread_info_clone = a.thread_info.clone();
                     move || {
                         // println!("{:3?} working on {curr_move}", thread::current().id());
+                        println!("{:width$} Start Board: {}", "", board_clone.board);
+                        println!("{:width$} Exploring move: {curr_move}", "");
                         let board_with_move = thread_info_clone.timing_remembering_move(
                             &mut board_clone,
                             &curr_move,
                             a.counter,
+                        );
+                        println!(
+                            "{:width$} Resulting Board: {} SCORE:{}",
+                            "", board_with_move.board, board_with_move.score
                         );
                         let (_, curr_score) = engine_clone.best_move_for_internal(
                             board_with_move,
@@ -605,5 +619,32 @@ mod test {
         the_board.gen_potential_moves(true, &mut moves);
         println!("{moves:?}");
         assert!(moves.contains(&PossibleMove::simple_from_uci("f7d8").unwrap()));
+    }
+
+    #[test]
+    fn retain_boards() {
+        let (engine, mut gamestate) = Engine::from_fen("8/8/8/8/6PP/6Pk/7P/7K w - - 0 1");
+        let short_deadline = Duration::from_millis(1);
+        let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
+        println!("Max Depth: {depth}");
+        let a_selected_move = *gamestate
+            .worked_on_board
+            .continuation
+            .keys()
+            .next()
+            .unwrap();
+        helper::visualise_explored_moves(gamestate.continuation());
+        let continuations_before = helper::total_continuation_boards(
+            gamestate
+                .worked_on_board
+                .continuation
+                .get(&a_selected_move)
+                .unwrap(),
+        );
+        gamestate.make_a_generated_move(&a_selected_move);
+        let (_, _, board_count, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
+        println!("Max Depth: {depth}");
+        let continuations_after = helper::total_continuation_boards(&gamestate.worked_on_board);
+        assert_eq!(continuations_after - continuations_before, board_count);
     }
 }
