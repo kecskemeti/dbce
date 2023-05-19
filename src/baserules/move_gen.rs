@@ -144,7 +144,7 @@ impl PSBoard {
             } else {
                 White
             },
-            resolver: &CASTLE_FORBIDDEN,
+            king_move_gen: &CASTLE_FORBIDDEN,
             ..*self
         }
     }
@@ -417,7 +417,7 @@ impl PSBoard {
     }
 
     fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        self.resolver.gen_king_moves(self, row, col, the_moves);
+        self.king_move_gen.gen_king_moves(self, row, col, the_moves);
     }
 
     /// Pawn moves, takes and promotions

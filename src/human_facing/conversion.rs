@@ -204,7 +204,7 @@ impl PSBoard {
             } else {
                 panic!("Unspecified whose turn it is!")
             },
-            resolver: if castling.is_empty() {
+            king_move_gen: if castling.is_empty() {
                 &CASTLE_FORBIDDEN
             } else {
                 &CASTLE_ALLOWED

@@ -70,7 +70,7 @@ pub struct PSBoard {
     /// Tells what kind of castling is allowed
     pub castling: EnumSet<Castling>,
     /// move resolver
-    pub(crate) resolver: &'static dyn KingMove,
+    pub(crate) king_move_gen: &'static dyn KingMove,
     /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<BoardPos>,
     /// The number of moves done so far
@@ -131,7 +131,7 @@ impl Default for PSBoard {
             move_count: 0,
             half_moves_since_pawn: 0,
             score: 0f32,
-            resolver: &CASTLE_ALLOWED,
+            king_move_gen: &CASTLE_ALLOWED,
         }
     }
 }
@@ -187,14 +187,9 @@ impl PSBoard {
         }
         raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
         let current_piece = raw_board[the_move.the_move.to].unwrap();
-        let castling =
+        let (castling, king_move_gen) =
             self.determine_castling_rights(&current_piece, the_move, piece_potentially_taken);
         PSBoard {
-            resolver: if castling.is_empty() {
-                &CASTLE_FORBIDDEN
-            } else {
-                &CASTLE_ALLOWED
-            },
             score: raw_board.score(),
             board: raw_board,
             who_moves: match current_piece.color {
@@ -212,6 +207,7 @@ impl PSBoard {
                 None
             },
             castling,
+            king_move_gen,
             half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
                 0
             } else if piece_potentially_taken.is_some() {
@@ -228,10 +224,13 @@ impl PSBoard {
         current_piece: &PieceState,
         the_move: &PossibleMove,
         possible_capture: &Option<PieceState>,
-    ) -> EnumSet<Castling> {
+    ) -> (EnumSet<Castling>, &'static dyn KingMove) {
         let mut new_castling = self.castling;
+        let mut king_mover = self.king_move_gen;
         if !self.castling.is_empty() {
+            let mut changed = false;
             if current_piece.kind == King {
+                changed = true;
                 new_castling ^= if current_piece.color == White {
                     WhiteKingSide | WhiteQueenSide
                 } else {
@@ -239,12 +238,14 @@ impl PSBoard {
                 };
             } else if current_piece.kind == Rook {
                 if the_move.the_move.from.1 == 7 {
+                    changed = true;
                     new_castling ^= if current_piece.color == White {
                         WhiteKingSide
                     } else {
                         BlackKingSide
                     };
                 } else if the_move.the_move.from.1 == 0 {
+                    changed = true;
                     new_castling ^= if current_piece.color == White {
                         WhiteQueenSide
                     } else {
@@ -258,12 +259,14 @@ impl PSBoard {
                 if let Some(taken) = possible_capture {
                     if taken.kind == Rook {
                         if the_move.the_move.to.1 == 0 {
+                            changed = true;
                             new_castling ^= if current_piece.color == White {
                                 BlackQueenSide
                             } else {
                                 WhiteQueenSide
                             };
                         } else {
+                            changed = true;
                             new_castling ^= if current_piece.color == White {
                                 BlackKingSide
                             } else {
@@ -273,8 +276,15 @@ impl PSBoard {
                     }
                 }
             }
+            if changed {
+                king_mover = if new_castling.is_empty() {
+                    &CASTLE_FORBIDDEN
+                } else {
+                    &CASTLE_ALLOWED
+                };
+            }
         }
-        new_castling
+        (new_castling, king_mover)
     }
 
     /// Determines what piece is at a particular location of the board
@@ -317,7 +327,7 @@ mod test {
         let moving_piece = PieceState::from_char('b');
         let captured_piece = Some(PieceState::from_char('R'));
         let the_capture = PossibleMove::simple_from_uci("b7h1").unwrap();
-        let castling_result =
+        let (castling_result, _) =
             silly_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
         assert_eq!(
             enum_set!(BlackQueenSide | BlackKingSide | WhiteQueenSide),
@@ -333,7 +343,7 @@ mod test {
             pawn_promotion: Some(Queen),
             rook: None,
         };
-        let castling_result =
+        let (castling_result, _) =
             crazy_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
         assert_eq!(
             enum_set!(BlackQueenSide | BlackKingSide | WhiteKingSide),
@@ -347,7 +357,7 @@ mod test {
             PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1");
         let moving_piece = PieceState::from_char('r');
         let the_move = PossibleMove::simple_from_uci("a8a6").unwrap();
-        let castling_result =
+        let (castling_result, _) =
             casual_rook_black.determine_castling_rights(&moving_piece, &the_move, &None);
         assert_eq!(
             enum_set!(BlackKingSide | WhiteKingSide | WhiteQueenSide),
@@ -359,7 +369,7 @@ mod test {
         let moving_piece = PieceState::from_char('r');
         let captured_piece = Some(PieceState::from_char('R'));
         let the_move = PossibleMove::simple_from_uci("h8h1").unwrap();
-        let castling_result = attacking_rook_black.determine_castling_rights(
+        let (castling_result, _) = attacking_rook_black.determine_castling_rights(
             &moving_piece,
             &the_move,
             &captured_piece,
@@ -374,7 +384,7 @@ mod test {
         let moving_piece = PieceState::from_char('K');
         let making_the_bongcloud = PossibleMove::simple_from_uci("e1e2").unwrap();
 
-        let castling_result = bongcloud_opening_prep.determine_castling_rights(
+        let (castling_result, _) = bongcloud_opening_prep.determine_castling_rights(
             &moving_piece,
             &making_the_bongcloud,
             &None,
