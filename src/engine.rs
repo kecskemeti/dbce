@@ -74,7 +74,7 @@ impl Engine {
     fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Engine, GameState) {
         let sample_board = initial_board_provider();
         let mut moves = Vec::new();
-        sample_board.gen_potential_moves(false, &mut moves);
+        sample_board.gen_potential_moves(&mut moves);
         let mv = Mutex::new(0);
         let scoring_timings = DurationAverage::new(50, {
             move || {
@@ -155,7 +155,7 @@ impl Engine {
 
         if !is_mate(start_board.board.score) {
             let mut moves = Vec::new();
-            start_board.gen_potential_moves(true, &mut moves);
+            start_board.gen_potential_moves(&mut moves);
             let movecount = moves.len();
             //println!("Potential moves: {:?}", moves);
             let single_move_deadline = deadline
@@ -220,15 +220,15 @@ impl Engine {
         let who = a.start_board.who_moves;
         let width = a.curr_depth as usize;
         while let Some(curr_move) = a.moves.pop() {
-            println!("{:width$} Start Board: {}", "", a.start_board.board);
-            println!("{:width$} Exploring move: {curr_move}", "");
+            // println!("{:width$} Start Board: {}", "", a.start_board.board);
+            // println!("{:width$} Exploring move: {curr_move}", "");
             let board_with_move =
                 a.thread_info
                     .timing_remembering_move(a.start_board, &curr_move, a.counter);
-            println!(
-                "{:width$} Resulting Board: {} SCORE:{}",
-                "", board_with_move.board, board_with_move.score
-            );
+            // println!(
+            //     "{:width$} Resulting Board: {} SCORE:{}",
+            //     "", board_with_move.board, board_with_move.score
+            // );
             let average_scoring_duration = a.thread_info.0.calc_average() * 40;
             let curr_score = if !is_mate(board_with_move.score)
                 && (average_scoring_duration < a.single_move_deadline)
@@ -369,17 +369,17 @@ impl Engine {
                     let mut thread_info_clone = a.thread_info.clone();
                     move || {
                         // println!("{:3?} working on {curr_move}", thread::current().id());
-                        println!("{:width$} Start Board: {}", "", board_clone.board);
-                        println!("{:width$} Exploring move: {curr_move}", "");
+                        // println!("{:width$} Start Board: {}", "", board_clone.board);
+                        // println!("{:width$} Exploring move: {curr_move}", "");
                         let board_with_move = thread_info_clone.timing_remembering_move(
                             &mut board_clone,
                             &curr_move,
                             a.counter,
                         );
-                        println!(
-                            "{:width$} Resulting Board: {} SCORE:{}",
-                            "", board_with_move.board, board_with_move.score
-                        );
+                        // println!(
+                        //     "{:width$} Resulting Board: {} SCORE:{}",
+                        //     "", board_with_move.board, board_with_move.score
+                        // );
                         let (_, curr_score) = engine_clone.best_move_for_internal(
                             board_with_move,
                             &single_thread_deadline,
@@ -469,13 +469,12 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let (_, (_, score)) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(2));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2));
         assert!(score < -6.0);
     }
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
-    #[ignore]
     fn weird_eval_3() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
@@ -485,7 +484,7 @@ mod test {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
-                Duration::from_millis(1),
+                Duration::from_millis(100),
                 Engine::parallel_exploration,
                 0,
                 counter,
@@ -500,7 +499,6 @@ mod test {
 
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
     #[test]
-    #[ignore]
     fn weird_eval_4() {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
@@ -510,7 +508,7 @@ mod test {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
-                Duration::from_millis(1),
+                Duration::from_secs(1),
                 Engine::parallel_exploration,
                 0,
                 counter,
@@ -529,7 +527,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let (_, (best, _)) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(2));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2));
         assert!(!best
             .unwrap()
             .eq(&PossibleMove::simple_from_uci("b3f7").unwrap()));
@@ -560,9 +558,9 @@ mod test {
     fn weird_eval_5() {
         let (engine, mut gamestate) =
             Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26");
-        let initial_duration = Duration::from_millis(20);
+        let initial_duration = Duration::from_secs(20);
         engine.build_continuation_and_move(&mut gamestate, &initial_duration, "Kc3", "Rxg2");
-        let normal_duration = Duration::from_millis(8);
+        let normal_duration = Duration::from_secs(8);
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rb1", "Rxh2");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rb8", "Re8");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rc4", "d6");
@@ -586,7 +584,7 @@ mod test {
     fn prep_failed_game_4() -> (Engine, GameState) {
         let (engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
-        let normal_duration = Duration::from_millis(1);
+        let normal_duration = Duration::from_secs(1);
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "d4", "Nxh8");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "dxc3", "Qh5+");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Kd8", "Nf7+");
@@ -598,7 +596,7 @@ mod test {
     fn failed_game_4() {
         let (engine, mut gamestate) = prep_failed_game_4();
         let (_, move_to_do) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(1));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1));
         let acceptable_moves = [
             PossibleMove::simple_from_uci("d8c8").unwrap(),
             PossibleMove::simple_from_uci("d8e8").unwrap(),
@@ -614,11 +612,11 @@ mod test {
     #[test]
     fn failed_game_4_subtest() {
         let (engine, mut gamestate) = prep_failed_game_4();
-        helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(1));
+        helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1));
         gamestate.make_a_human_move_or_panic("cxb2");
         let the_board = gamestate.continuation().clone();
         let mut moves = Vec::new();
-        the_board.gen_potential_moves(true, &mut moves);
+        the_board.gen_potential_moves(&mut moves);
         println!("{moves:?}");
         assert!(moves.contains(&PossibleMove::simple_from_uci("f7d8").unwrap()));
     }

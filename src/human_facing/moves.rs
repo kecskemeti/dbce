@@ -100,7 +100,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             }
         }
         let mut all_moves = Vec::new();
-        board.gen_potential_moves(false, &mut all_moves);
+        board.gen_potential_moves(&mut all_moves);
         if row.len() == 1 {
             if col.len() == 1 {
                 let target = (row.pop().unwrap(), col.pop().unwrap());

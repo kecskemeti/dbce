@@ -28,7 +28,6 @@ use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
-use core::ops::Deref;
 use enumset::EnumSet;
 use std::cell::RefCell;
 use std::cmp::{max, min};
@@ -88,7 +87,7 @@ impl KingMove for Castle {
                             let count = {
                                 let mut other_side_moves = Vec::new();
                                 {
-                                    otherside.gen_potential_moves(false, &mut other_side_moves);
+                                    otherside.gen_potential_moves(&mut other_side_moves);
                                 }
                                 other_side_moves
                                     .iter()
@@ -145,6 +144,7 @@ impl PSBoard {
             } else {
                 White
             },
+            resolver: &CASTLE_FORBIDDEN,
             ..*self
         }
     }
@@ -386,16 +386,11 @@ impl PSBoard {
     /// use dbce::baserules::board_rep::BoardPos;
     /// let board = PSBoard::default();
     /// let mut moves = Vec::new();
-    /// board.gen_potential_moves(true, &mut moves);
+    /// board.gen_potential_moves(&mut moves);
     /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==BoardPos(0,1)&&m.the_move.to==BoardPos(2,2));
     /// assert!(van_geet_opening_found);
     /// ```
-    pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
-        /*let king_move_call = if castling_allowed && !self.castling.is_empty() {
-            PSBoard::gen_king_moves_with_castling
-        } else {
-            PSBoard::gen_king_moves
-        };*/
+    pub fn gen_potential_moves(&self, the_moves: &mut Vec<PossibleMove>) {
         self.board
             .into_iter()
             .enumerate()
@@ -508,7 +503,6 @@ mod test {
 
     /// Tests for this game: https://lichess.org/NPchEbrvI0qD
     #[test]
-    #[ignore]
     fn failed_game_1() {
         let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
         let (engine, mut gamestate) =
@@ -526,7 +520,6 @@ mod test {
 
     /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
     #[test]
-    #[ignore]
     fn failed_game_2() {
         let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
         let (engine, mut gamestate) =
@@ -549,7 +542,6 @@ mod test {
     /// Tests for this game: https://lichess.org/9KuuHpmFX74q
     /// Ideally, this test should not have such a long deadline that we have now
     #[test]
-    #[ignore]
     fn failed_game_3() {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",

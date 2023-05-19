@@ -29,7 +29,7 @@ use rand::{thread_rng, Rng};
 use std::time::Duration;
 
 lazy_static! {
-    static ref ENGINE_THINK_TIME: Duration = Duration::from_millis(5);
+    static ref ENGINE_THINK_TIME: Duration = Duration::from_secs(5);
 }
 
 fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
