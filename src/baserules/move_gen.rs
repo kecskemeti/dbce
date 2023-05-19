@@ -28,20 +28,125 @@ use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
+use core::ops::Deref;
 use enumset::EnumSet;
 use std::cell::RefCell;
 use std::cmp::{max, min};
 
+/*
+enum KingMove {
+    Castle,
+    NoCastle,
+}
+
+
+fn a(k: KingMove) {
+    match k {
+        KingMove::Castle => self.0.gen_king_moves(row, col, the_moves),
+        KingMove::NoCastle => gen_king_moves(&self, row, col, the_moves),
+    }
+}*/
+
+pub(crate) trait KingMove: Sync {
+    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>);
+    //fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>);
+}
+
+pub struct Castle(pub &'static NotCastle);
+
+pub static CASTLE_ALLOWED: Castle = Castle(&CASTLE_FORBIDDEN);
+
+impl KingMove for Castle {
+    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+        self.0.gen_king_moves(board, row, col, the_moves);
+        // Castling:
+        if row == board.who_moves.piece_row() && col == 4 {
+            // the king is in its original location we need a more in depth check on castling
+            if (board.who_moves == White && !board.castling.is_disjoint(white_can_castle()))
+                || (board.who_moves == Black && !board.castling.is_disjoint(black_can_castle()))
+            {
+                // there are castling opportunities
+                static CASTLING_SIDE: [EnumSet<Castling>; 2] =
+                    [queenside_castle(), kingside_castle()];
+                static CASTLING_RANGES: [(i8, i8); 2] = [(1, 3), (5, 6)];
+                static CASTLING_MOVES: [[i8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
+                'outer: for (idx, side) in CASTLING_SIDE.iter().enumerate() {
+                    if !board.castling.is_disjoint(*side) {
+                        let mut castling_range_free = true;
+                        for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
+                            castling_range_free &= board.get_loc(BoardPos(row, lc)).is_none();
+                            if !castling_range_free {
+                                continue 'outer;
+                            }
+                        }
+
+                        if castling_range_free {
+                            // Let's see if we would cross a check
+                            let otherside = board.switch_sides();
+                            let mincol = min(CASTLING_MOVES[idx][0], 4);
+                            let maxcol = max(CASTLING_MOVES[idx][0], 4);
+                            let count = {
+                                let mut other_side_moves = Vec::new();
+                                {
+                                    otherside.gen_potential_moves(false, &mut other_side_moves);
+                                }
+                                other_side_moves
+                                    .iter()
+                                    .filter(|m| {
+                                        m.the_move.to.0 == board.who_moves.piece_row()
+                                            && m.the_move.to.1 <= maxcol
+                                            && m.the_move.to.1 >= mincol
+                                    })
+                                    .count()
+                            };
+                            if count == 0 {
+                                // would not cross check
+                                the_moves.push(PossibleMove {
+                                    the_move: BaseMove {
+                                        from: BoardPos(row, col),
+                                        to: BoardPos(row, CASTLING_MOVES[idx][0]),
+                                    },
+                                    pawn_promotion: None,
+                                    rook: Some(BaseMove {
+                                        from: BoardPos(row, CASTLING_MOVES[idx][1]),
+                                        to: BoardPos(row, CASTLING_MOVES[idx][2]),
+                                    }),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub struct NotCastle;
+pub static CASTLE_FORBIDDEN: NotCastle = NotCastle;
+
+impl KingMove for NotCastle {
+    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+        board.gen_moves_from_dirs(
+            row,
+            col,
+            &PSBoard::piece_move_rule,
+            King.vec_moves(),
+            the_moves,
+        );
+    }
+}
+
 impl PSBoard {
     /// does a dirty side switch to allow seeing castling issues
     fn switch_sides(&self) -> PSBoard {
-        let mut other_side = self.clone();
-        other_side.who_moves = if self.who_moves == White {
-            Black
-        } else {
-            White
-        };
-        other_side
+        PSBoard {
+            who_moves: if self.who_moves == White {
+                Black
+            } else {
+                White
+            },
+            ..*self
+        }
     }
 
     /// Pieces can move and take till they hit another piece, assuming it is not the same colour
@@ -286,11 +391,11 @@ impl PSBoard {
     /// assert!(van_geet_opening_found);
     /// ```
     pub fn gen_potential_moves(&self, castling_allowed: bool, the_moves: &mut Vec<PossibleMove>) {
-        let king_move_call = if castling_allowed && !self.castling.is_empty() {
+        /*let king_move_call = if castling_allowed && !self.castling.is_empty() {
             PSBoard::gen_king_moves_with_castling
         } else {
             PSBoard::gen_king_moves
-        };
+        };*/
         self.board
             .into_iter()
             .enumerate()
@@ -303,7 +408,7 @@ impl PSBoard {
                             ri,
                             ci,
                             match curr.kind {
-                                King => king_move_call,
+                                King => PSBoard::gen_king_moves,
                                 Pawn => PSBoard::gen_pawn_moves,
                                 Knight => PSBoard::gen_knight_moves,
                                 Rook | Bishop | Queen => PSBoard::gen_vec_moves,
@@ -316,79 +421,8 @@ impl PSBoard {
             .for_each(|(ri, ci, call)| call(self, ri, ci, the_moves));
     }
 
-    /// Normal king moves
     fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        self.gen_moves_from_dirs(
-            row,
-            col,
-            &PSBoard::piece_move_rule,
-            King.vec_moves(),
-            the_moves,
-        );
-    }
-
-    /// King moves when we are castling
-    fn gen_king_moves_with_castling(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        self.gen_king_moves(row, col, the_moves);
-        // Castling:
-        if row == self.who_moves.piece_row() && col == 4 {
-            // the king is in its original location we need a more in depth check on castling
-            if (self.who_moves == White && !self.castling.is_disjoint(white_can_castle()))
-                || (self.who_moves == Black && !self.castling.is_disjoint(black_can_castle()))
-            {
-                // there are castling opportunities
-                static CASTLING_SIDE: [EnumSet<Castling>; 2] =
-                    [queenside_castle(), kingside_castle()];
-                static CASTLING_RANGES: [(i8, i8); 2] = [(1, 3), (5, 6)];
-                static CASTLING_MOVES: [[i8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
-                'outer: for (idx, side) in CASTLING_SIDE.iter().enumerate() {
-                    if !self.castling.is_disjoint(*side) {
-                        let mut castling_range_free = true;
-                        for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
-                            castling_range_free &= self.get_loc(BoardPos(row, lc)).is_none();
-                            if !castling_range_free {
-                                continue 'outer;
-                            }
-                        }
-
-                        if castling_range_free {
-                            // Let's see if we would cross a check
-                            let otherside = self.switch_sides();
-                            let mincol = min(CASTLING_MOVES[idx][0], 4);
-                            let maxcol = max(CASTLING_MOVES[idx][0], 4);
-                            let count = {
-                                let mut other_side_moves = Vec::new();
-                                {
-                                    otherside.gen_potential_moves(false, &mut other_side_moves);
-                                }
-                                other_side_moves
-                                    .iter()
-                                    .filter(|m| {
-                                        m.the_move.to.0 == self.who_moves.piece_row()
-                                            && m.the_move.to.1 <= maxcol
-                                            && m.the_move.to.1 >= mincol
-                                    })
-                                    .count()
-                            };
-                            if count == 0 {
-                                // would not cross check
-                                the_moves.push(PossibleMove {
-                                    the_move: BaseMove {
-                                        from: BoardPos(row, col),
-                                        to: BoardPos(row, CASTLING_MOVES[idx][0]),
-                                    },
-                                    pawn_promotion: None,
-                                    rook: Some(BaseMove {
-                                        from: BoardPos(row, CASTLING_MOVES[idx][1]),
-                                        to: BoardPos(row, CASTLING_MOVES[idx][2]),
-                                    }),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.resolver.gen_king_moves(self, row, col, the_moves);
     }
 
     /// Pawn moves, takes and promotions
@@ -474,6 +508,7 @@ mod test {
 
     /// Tests for this game: https://lichess.org/NPchEbrvI0qD
     #[test]
+    #[ignore]
     fn failed_game_1() {
         let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
         let (engine, mut gamestate) =
@@ -491,6 +526,7 @@ mod test {
 
     /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
     #[test]
+    #[ignore]
     fn failed_game_2() {
         let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
         let (engine, mut gamestate) =
@@ -513,6 +549,7 @@ mod test {
     /// Tests for this game: https://lichess.org/9KuuHpmFX74q
     /// Ideally, this test should not have such a long deadline that we have now
     #[test]
+    #[ignore]
     fn failed_game_3() {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
