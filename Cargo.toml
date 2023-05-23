@@ -24,6 +24,7 @@ enum-iterator = "1.4.0"
 global_counter = "0.2.2"
 sysinfo = "0.28.4"
 rayon = "1.7"
+typed-arena = "2.0.2"
 
 [profile.release]
 debug = 1

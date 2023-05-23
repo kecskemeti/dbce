@@ -22,10 +22,10 @@ impl EngineThread {
         amove: &PossibleMove,
         counter: &FlushingCounterU32,
     ) -> &'a mut BoardContinuation {
-        counter.inc();
         if board.continuation.contains_key(amove) {
             board.continuation.get_mut(amove).unwrap()
         } else {
+            counter.inc();
             let (psb, dur) = EngineThread::timed_move(board, amove);
             self.0.add(dur);
             board
