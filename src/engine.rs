@@ -633,7 +633,6 @@ mod test {
             .keys()
             .next()
             .unwrap();
-        helper::visualise_explored_moves(gamestate.continuation());
         let continuations_before = helper::total_continuation_boards(
             gamestate
                 .worked_on_board
