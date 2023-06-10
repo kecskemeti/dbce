@@ -23,9 +23,7 @@
 
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
-use crate::engine::continuation::BoardContinuation;
 use crate::engine::{gamestate::GameState, Engine};
-use rayon::prelude::*;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -51,7 +49,7 @@ pub fn calculate_move_for_console(
     let taken_this_much_time_ms = taken_this_much_time.as_millis();
     // visualise_explored_moves(gamestate.get_board());
     println!("Move took {} ms", taken_this_much_time_ms);
-    println!("Went to depth {}", find_max_for_gs(gamestate));
+    println!("Went to depth {}", machine_eval.3);
     println!(
         "{} kNodes/sec",
         (machine_eval.2 as u128) / 1.max(taken_this_much_time_ms)
@@ -61,55 +59,4 @@ pub fn calculate_move_for_console(
         machine_eval.1
     );
     (taken_this_much_time, (machine_eval.0, machine_eval.1))
-}
-
-pub fn find_max_for_gs(gs: &GameState) -> u8 {
-    find_max_depth(gs.continuation())
-}
-
-pub fn find_max_depth(of_board: &BoardContinuation) -> u8 {
-    internal_depth_par(of_board, 0)
-}
-
-fn internal_depth_seq(of_board: &BoardContinuation, curr_depth: u8) -> u8 {
-    let next_depth = curr_depth + 1;
-    of_board
-        .continuation
-        .iter()
-        .map(|(_, next_board)| internal_depth_seq(next_board, next_depth))
-        .max()
-        .unwrap_or(next_depth)
-}
-
-fn internal_depth_par(of_board: &BoardContinuation, curr_depth: u8) -> u8 {
-    let next_depth = curr_depth + 1;
-    of_board
-        .continuation
-        .par_iter()
-        .map(|(_, next_board)| internal_depth_seq(next_board, next_depth))
-        .max()
-        .unwrap_or(next_depth)
-}
-
-pub fn total_continuation_boards(of_board: &BoardContinuation) -> u32 {
-    of_board.continuation.len() as u32
-        + of_board
-            .continuation
-            .values()
-            .map(total_continuation_boards)
-            .sum::<u32>()
-}
-
-#[allow(dead_code)]
-pub fn visualise_explored_moves(of_board: &BoardContinuation) {
-    internal_visualise(of_board, 0);
-}
-
-fn internal_visualise(of_board: &BoardContinuation, depth: u8) {
-    let prefix: String = (0..depth).map(|_| ' ').collect();
-    let next_depth = depth + 1;
-    for (a_move, its_board) in of_board.continuation.iter() {
-        println!("{prefix}{a_move}");
-        internal_visualise(its_board, next_depth);
-    }
 }
