@@ -621,6 +621,7 @@ mod test {
         let short_deadline = Duration::from_millis(1);
         let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
         println!("Max Depth: {depth}");
+        gamestate.worked_on_board.visualise_explored_moves();
         let a_selected_move = *gamestate.worked_on_board.keys().next().unwrap();
         let the_selected_board = gamestate
             .worked_on_board
@@ -630,7 +631,7 @@ mod test {
         gamestate.make_a_generated_move(&a_selected_move);
         let (_, _, board_count, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
         println!("Max Depth: {depth}");
-
+        gamestate.worked_on_board.visualise_explored_moves();
         let continuations_after = gamestate.worked_on_board.total_continuation_boards();
         assert_eq!(continuations_after - continuations_before, board_count);
     }

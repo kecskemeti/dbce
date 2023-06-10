@@ -110,6 +110,9 @@ impl BoardContinuation {
 
     pub fn merge(&mut self, mut board: BoardContinuation) {
         board.continuation.drain().for_each(|(_, tuple)| {
+            if self.continuation_exists(&tuple.0) {
+                panic!("exists!!")
+            };
             self.continuation.insert(tuple);
         })
     }
@@ -157,7 +160,7 @@ impl BoardContinuation {
     }
 
     #[allow(dead_code)]
-    pub fn visualise_explored_moves(&mut self) {
+    pub fn visualise_explored_moves(&self) {
         self.internal_visualise(0);
     }
 
