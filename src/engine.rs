@@ -180,7 +180,7 @@ impl Engine {
                 thread_info,
             );
 
-            let best_potential_board = start_board.continuation.values().max_by(|b1, b2| {
+            let best_potential_board = start_board.values().max_by(|b1, b2| {
                 (mate_multiplier * b1.adjusted_score)
                     .partial_cmp(&(mate_multiplier * b2.adjusted_score))
                     .unwrap_or(Ordering::Less)
@@ -192,7 +192,6 @@ impl Engine {
                     start_board.select_similar_board(best_board, |b| b.adjusted_score)
                 };
                 ret = start_board
-                    .continuation
                     .iter()
                     .find_map(|(amove, aboard)| {
                         if ptr::eq(aboard, selected_board) {
@@ -392,9 +391,9 @@ impl Engine {
                         a.counter.flush();
                         (
                             curr_score,
-                            board_clone,
                             curr_move,
                             thread_info_clone.0.calc_average(),
+                            board_clone,
                         )
                     }
                 });
@@ -403,8 +402,7 @@ impl Engine {
             }
 
             for join in joins {
-                let (curr_score, mut board_with_move, curr_move, timing_average) =
-                    join.join().unwrap();
+                let (curr_score, curr_move, timing_average, board_clone) = join.join().unwrap();
                 // println!("Timings: {timing_average:?} for {curr_move}");
                 Engine::update_max_search(who, &mut a.max_search, curr_score);
                 {
@@ -415,13 +413,10 @@ impl Engine {
                 let width = a.curr_depth as usize;
                 println!(
                     "{:width$} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                    "", board_with_move.score, board_with_move.adjusted_score
+                    "", a.start_board.score, a.start_board.adjusted_score
                 );
 
-                a.start_board.continuation.insert(
-                    curr_move,
-                    board_with_move.continuation.remove(&curr_move).unwrap(),
-                );
+                a.start_board.merge(board_clone);
             }
             ExplorationOutput {
                 max_search: a.max_search,
@@ -436,7 +431,6 @@ mod test {
 
     use crate::engine::{EngineThread, GameState};
     use crate::human_facing::helper;
-    use crate::human_facing::helper::find_max_for_gs;
     use crate::{baserules::board_rep::PossibleMove, engine::Engine};
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
@@ -446,7 +440,7 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter, maximum| {
+        let result = Engine::manage_counter(|counter, maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -458,7 +452,7 @@ mod test {
                 &mut thread_info,
             )
         });
-        println!("Depth: {}", find_max_for_gs(&gamestate));
+        println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score < -4.0);
     }
@@ -480,7 +474,7 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter, maximum| {
+        let result = Engine::manage_counter(|counter, maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -492,7 +486,7 @@ mod test {
                 &mut thread_info,
             )
         });
-        println!("Depth: {}", find_max_for_gs(&gamestate));
+        println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score > 2.0);
     }
@@ -504,7 +498,7 @@ mod test {
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        Engine::manage_counter(|counter, maximum| {
+        let result = Engine::manage_counter(|counter, maximum| {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
@@ -516,7 +510,7 @@ mod test {
                 &mut thread_info,
             )
         });
-        println!("Depth: {}", find_max_for_gs(&gamestate));
+        println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score < -5.0);
     }
@@ -627,23 +621,18 @@ mod test {
         let short_deadline = Duration::from_millis(1);
         let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
         println!("Max Depth: {depth}");
-        let a_selected_move = *gamestate
+        gamestate.worked_on_board.visualise_explored_moves();
+        let a_selected_move = *gamestate.worked_on_board.keys().next().unwrap();
+        let the_selected_board = gamestate
             .worked_on_board
-            .continuation
-            .keys()
-            .next()
+            .find_continuation(&a_selected_move)
             .unwrap();
-        let continuations_before = helper::total_continuation_boards(
-            gamestate
-                .worked_on_board
-                .continuation
-                .get(&a_selected_move)
-                .unwrap(),
-        );
+        let continuations_before = the_selected_board.total_continuation_boards();
         gamestate.make_a_generated_move(&a_selected_move);
         let (_, _, board_count, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
         println!("Max Depth: {depth}");
-        let continuations_after = helper::total_continuation_boards(&gamestate.worked_on_board);
+        gamestate.worked_on_board.visualise_explored_moves();
+        let continuations_after = gamestate.worked_on_board.total_continuation_boards();
         assert_eq!(continuations_after - continuations_before, board_count);
     }
 }
