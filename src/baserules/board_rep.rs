@@ -222,6 +222,15 @@ mod test {
     }
 
     #[test]
+    fn clone_eq_test() {
+        let pm = PossibleMove::simple_from_uci("h4h5").unwrap();
+        let clone_pm = pm.clone();
+        let pm_ref = &pm;
+        let pm_clone_ref = &clone_pm;
+        assert!(pm_ref == pm_clone_ref);
+    }
+
+    #[test]
     fn ucitest() {
         let pawn_promote = PossibleMove {
             the_move: BaseMove {

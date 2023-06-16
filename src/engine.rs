@@ -416,7 +416,7 @@ impl Engine {
                     "", a.start_board.score, a.start_board.adjusted_score
                 );
 
-                a.start_board.merge(board_clone);
+                a.start_board.merge(&curr_move, board_clone);
             }
             ExplorationOutput {
                 max_search: a.max_search,
@@ -623,6 +623,7 @@ mod test {
         println!("Max Depth: {depth}");
         gamestate.worked_on_board.visualise_explored_moves();
         let a_selected_move = *gamestate.worked_on_board.keys().next().unwrap();
+        println!("selected move {:?}", a_selected_move);
         let the_selected_board = gamestate
             .worked_on_board
             .find_continuation(&a_selected_move)
