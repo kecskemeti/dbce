@@ -108,13 +108,37 @@ impl BoardContinuation {
             .map(|(_, (posssible_move, _))| posssible_move)
     }
 
-    pub fn merge(&mut self, mut board: BoardContinuation) {
-        board.continuation.drain().for_each(|(_, tuple)| {
-            if self.continuation_exists(&tuple.0) {
-                panic!("exists!!")
-            };
-            self.continuation.insert(tuple);
-        })
+    pub fn merge(&mut self, move_taken: &PossibleMove, mut board: BoardContinuation) {
+        println!("the move! {:?}", move_taken);
+        println!("self for merge: ");
+        self.visualise_explored_moves();
+        println!("board for merge: ");
+        board.visualise_explored_moves();
+        if let Some(contination_move) = self.find_continuation_mut(move_taken) {
+            if contination_move.continuation.is_empty() {
+                self.populate_empty(move_taken, board);
+            } else {
+                if let Some(mut alt_contination) = board.find_continuation_remove(move_taken) {
+                    alt_contination
+                        .continuation
+                        .drain()
+                        .for_each(|(_, (pm, b))| {
+                            contination_move.merge(&pm, b);
+                        })
+                } else {
+                    panic!("{:?} board was not better built than self", move_taken);
+                }
+            }
+        } else {
+            self.populate_empty(move_taken, board);
+        }
+    }
+
+    fn populate_empty(&mut self, move_taken: &PossibleMove, mut board: BoardContinuation) {
+        if let Some(continuation_move_b) = board.find_continuation_remove(move_taken) {
+            self.continuation
+                .insert((move_taken.clone(), continuation_move_b));
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &(PossibleMove, BoardContinuation)> {
