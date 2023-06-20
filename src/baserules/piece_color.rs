@@ -34,18 +34,18 @@ pub enum PieceColor {
 lazy_static! {
     /// Colour dependent directional pawn moves for pawns that have already taken their first move
     static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![BoardPos(-1, 0)],
-        White => vec![BoardPos(1, 0)]
+        Black => vec![(-1, 0).into()],
+        White => vec![(1, 0).into()]
     };
     /// Colour dependent directional pawn moves for pawns that have not moved yet
     static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![BoardPos(-1, 0), BoardPos(-2, 0)],
-        White => vec![BoardPos(1, 0), BoardPos(2, 0)]
+        Black => vec![(-1, 0).into(), (-2, 0).into()],
+        White => vec![(1, 0).into(), (2, 0).into()]
     };
     /// Colour dependent directional pawn moves for pawns that can take opponent pieces
     static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, Vec<BoardPos>> = enum_map! {
-        Black => vec![BoardPos(-1, 1), BoardPos(-1, -1)],
-        White => vec![BoardPos(1, 1), BoardPos(1, -1)]
+        Black => vec![(-1, 1).into(), (-1, -1).into()],
+        White => vec![(1, 1).into(), (1, -1).into()]
     };
     /// Colour dependent row number to identify promotion squares
     static ref PAWN_PROMOTION_MAP: EnumMap<PieceColor, i8> = enum_map! {

@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "dbce"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "ahash 0.8.3",
  "criterion",
@@ -286,6 +286,7 @@ dependencies = [
  "futures-util",
  "generational-arena",
  "global_counter",
+ "itertools",
  "lazy_static",
  "rand",
  "rayon",

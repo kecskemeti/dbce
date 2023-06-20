@@ -153,7 +153,7 @@ impl Engine {
             Black => -1.0,
         };
 
-        if !is_mate(start_board.board.score) {
+        if !is_mate(start_board.score) {
             let mut moves = Vec::new();
             start_board.gen_potential_moves(&mut moves);
             let movecount = moves.len();
@@ -217,17 +217,10 @@ impl Engine {
 
     fn sequential_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
         let who = a.start_board.who_moves;
-        let width = a.curr_depth as usize;
         while let Some(curr_move) = a.moves.pop() {
-            // println!("{:width$} Start Board: {}", "", a.start_board.board);
-            // println!("{:width$} Exploring move: {curr_move}", "");
             let board_with_move =
                 a.thread_info
                     .timing_remembering_move(a.start_board, &curr_move, a.counter);
-            // println!(
-            //     "{:width$} Resulting Board: {} SCORE:{}",
-            //     "", board_with_move.board, board_with_move.score
-            // );
             let average_scoring_duration = a.thread_info.0.calc_average() * 40;
             let curr_score = if !is_mate(board_with_move.score)
                 && (average_scoring_duration < a.single_move_deadline)
@@ -359,7 +352,6 @@ impl Engine {
 
             let mut joins = Vec::new();
             let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
-            let width = a.curr_depth as usize;
 
             while let Some(curr_move) = a.moves.pop() {
                 let join_a = s.spawn({
@@ -367,18 +359,11 @@ impl Engine {
                     let engine_clone = self.clone();
                     let mut thread_info_clone = a.thread_info.clone();
                     move || {
-                        // println!("{:3?} working on {curr_move}", thread::current().id());
-                        // println!("{:width$} Start Board: {}", "", board_clone.board);
-                        // println!("{:width$} Exploring move: {curr_move}", "");
                         let board_with_move = thread_info_clone.timing_remembering_move(
                             &mut board_clone,
                             &curr_move,
                             a.counter,
                         );
-                        // println!(
-                        //     "{:width$} Resulting Board: {} SCORE:{}",
-                        //     "", board_with_move.board, board_with_move.score
-                        // );
                         let (_, curr_score) = engine_clone.best_move_for_internal(
                             board_with_move,
                             &single_thread_deadline,
@@ -403,7 +388,6 @@ impl Engine {
 
             for join in joins {
                 let (curr_score, curr_move, timing_average, board_clone) = join.join().unwrap();
-                // println!("Timings: {timing_average:?} for {curr_move}");
                 Engine::update_max_search(who, &mut a.max_search, curr_score);
                 {
                     let mut global_timings = self.scoring_timings.lock().unwrap();
@@ -416,7 +400,7 @@ impl Engine {
                     "", a.start_board.score, a.start_board.adjusted_score
                 );
 
-                a.start_board.merge(&curr_move, board_clone);
+                a.start_board.merge(board_clone);
             }
             ExplorationOutput {
                 max_search: a.max_search,

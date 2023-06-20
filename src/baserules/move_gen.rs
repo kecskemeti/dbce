@@ -73,7 +73,7 @@ impl KingMove for Castle {
                     if !board.castling.is_disjoint(*side) {
                         let mut castling_range_free = true;
                         for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
-                            castling_range_free &= board.get_loc(BoardPos(row, lc)).is_none();
+                            castling_range_free &= board.get_loc((row, lc).into()).is_none();
                             if !castling_range_free {
                                 continue 'outer;
                             }
@@ -102,13 +102,13 @@ impl KingMove for Castle {
                                 // would not cross check
                                 the_moves.push(PossibleMove {
                                     the_move: BaseMove {
-                                        from: BoardPos(row, col),
-                                        to: BoardPos(row, CASTLING_MOVES[idx][0]),
+                                        from: (row, col).into(),
+                                        to: (row, CASTLING_MOVES[idx][0]).into(),
                                     },
                                     pawn_promotion: None,
                                     rook: Some(BaseMove {
-                                        from: BoardPos(row, CASTLING_MOVES[idx][1]),
-                                        to: BoardPos(row, CASTLING_MOVES[idx][2]),
+                                        from: (row, CASTLING_MOVES[idx][1]).into(),
+                                        to: (row, CASTLING_MOVES[idx][2]).into(),
                                     }),
                                 });
                             }
@@ -204,8 +204,8 @@ impl PSBoard {
             // Move is allowed by the rule, we generate it
             Some(PossibleMove {
                 the_move: BaseMove {
-                    from: BoardPos(row, col),
-                    to: BoardPos(loc.0, loc.1),
+                    from: (row, col).into(),
+                    to: (loc.0, loc.1).into(),
                 },
                 pawn_promotion: None,
                 rook: None,
@@ -231,7 +231,7 @@ impl PSBoard {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| BoardPos(m.0 + row, m.1 + col))
+                .map(|m| (m.0 + row, m.1 + col).into())
                 .filter_map(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
@@ -253,7 +253,7 @@ impl PSBoard {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| BoardPos(m.0 + row, m.1 + col))
+                .map(|m| (m.0 + row, m.1 + col).into())
                 .map_while(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
@@ -383,15 +383,16 @@ impl PSBoard {
     ///
     /// ```
     /// use dbce::baserules::board::PSBoard;
-    /// use dbce::baserules::board_rep::BoardPos;
+    /// use dbce::baserules::board_rep::BaseMove;
     /// let board = PSBoard::default();
     /// let mut moves = Vec::new();
     /// board.gen_potential_moves(&mut moves);
-    /// let van_geet_opening_found = moves.iter().any(|m| m.the_move.from==BoardPos(0,1)&&m.the_move.to==BoardPos(2,2));
+    /// let van_geet_opening = BaseMove::from_uci("b1c3").unwrap();
+    /// let van_geet_opening_found = moves.iter().any(|m| m.the_move == van_geet_opening);
     /// assert!(van_geet_opening_found);
     /// ```
     pub fn gen_potential_moves(&self, the_moves: &mut Vec<PossibleMove>) {
-        self.board
+        self.raw
             .into_iter()
             .enumerate()
             .filter_map(|(idx, ps)| {
@@ -488,7 +489,7 @@ impl PSBoard {
         self.gen_moves_from_vecs(
             row,
             col,
-            self.get_loc(BoardPos(row, col)).unwrap().kind.vec_moves(),
+            self.get_loc((row, col).into()).unwrap().kind.vec_moves(),
             the_moves,
         );
     }

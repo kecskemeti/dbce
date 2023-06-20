@@ -39,23 +39,23 @@ pub enum PieceKind {
 
 /// This array is laid out sparsely to accommodate each ascii letter representing the characters from 'b' to 'r'
 static CHAR_PIECE_MAP: [Option<PieceKind>; 17] = [
-    Some(Bishop),
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    Some(King),
-    None,
-    None,
-    Some(Knight),
-    None,
-    Some(Pawn),
-    Some(Queen),
-    Some(Rook),
+    Some(Bishop), //b
+    None,         //c
+    None,         //d
+    None,         //e
+    None,         //f
+    None,         //g
+    None,         //h
+    None,         //i
+    None,         //j
+    Some(King),   //k
+    None,         //l
+    None,         //m
+    Some(Knight), //n
+    None,         //o
+    Some(Pawn),   //p
+    Some(Queen),  //q
+    Some(Rook),   //r
 ];
 
 lazy_static! {
@@ -63,28 +63,28 @@ lazy_static! {
     /// For kings and knights it is all possible relative moves compared to their current square
     /// For bishops, rooks and queens it is listing directional vectors that point towards the pieces possible future positions achievable in a single step
     static ref PIECE_MOVES: EnumMap<PieceKind, Vec<BoardPos>> = enum_map! {
-        Bishop => vec![BoardPos(-1, -1), BoardPos(1, 1), BoardPos(-1, 1), BoardPos(1, -1)],
-        Rook => vec![BoardPos(-1, 0), BoardPos(1, 0), BoardPos(0, 1), BoardPos(0, -1)],
-        Knight => vec![
-           BoardPos(-1, -2),
-            BoardPos(-1, 2),
-            BoardPos(-2, -1),
-           BoardPos (-2, 1),
-            BoardPos(1, -2),
-           BoardPos (1, 2),
-           BoardPos (2, -1),
-            BoardPos(2, 1),
-        ],
-        King | Queen => vec![
-        BoardPos(-1, -1),
-       BoardPos (1, 1),
-        BoardPos(-1, 1),
-       BoardPos (1, -1),
-        BoardPos(-1, 0),
-        BoardPos(1, 0),
-        BoardPos(0, 1),
-       BoardPos (0, -1),
-        ],
+        Bishop => BoardPos::transform_vec(vec![(-1, -1), (1, 1), (-1, 1), (1, -1)]),
+        Rook => BoardPos::transform_vec(vec![(-1, 0), (1, 0), (0, 1), (0, -1)]),
+        Knight => BoardPos::transform_vec(vec![
+           (-1, -2),
+            (-1, 2),
+            (-2, -1),
+           (-2, 1),
+            (1, -2),
+            (1, 2),
+            (2, -1),
+            (2, 1),
+        ]),
+        King | Queen => BoardPos::transform_vec(vec![
+        (-1, -1),
+        (1, 1),
+        (-1, 1),
+        (1, -1),
+        (-1, 0),
+        (1, 0),
+        (0, 1),
+        (0, -1),
+        ]),
         Pawn => Vec::new(),
     };
     static ref PIECE_CHARS: EnumMap<PieceKind, char> = enum_map! {

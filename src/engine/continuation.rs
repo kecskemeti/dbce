@@ -3,6 +3,7 @@ use crate::baserules::board_rep::PossibleMove;
 use rand::{thread_rng, Rng};
 
 use generational_arena::Arena;
+use itertools::Itertools;
 use std::{ops::Deref, sync::Arc};
 
 #[derive(Clone)]
@@ -15,11 +16,24 @@ pub struct BoardContinuation {
 }
 
 impl Default for BoardContinuation {
+    /// Produces a board continuation with the starting board
+    ///
+    /// # Example use:
+    /// ```
+    /// use dbce::baserules::board::PSBoard;
+    /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::engine::continuation::BoardContinuation;
+    /// let starting_position = BoardContinuation::default();
+    /// assert_eq!(starting_position.raw, PSBoard::default().raw);
+    /// assert_eq!(0, starting_position.total_continuation_boards());
+    /// ```
     fn default() -> Self {
         BoardContinuation::new(PSBoard::default())
     }
 }
 
+/// Allows direct access to the PSBoard embedded inside BoardContinuations.
+///
 impl Deref for BoardContinuation {
     type Target = PSBoard;
     fn deref(&self) -> &Self::Target {
@@ -108,37 +122,17 @@ impl BoardContinuation {
             .map(|(_, (posssible_move, _))| posssible_move)
     }
 
-    pub fn merge(&mut self, move_taken: &PossibleMove, mut board: BoardContinuation) {
-        println!("the move! {:?}", move_taken);
-        println!("self for merge: ");
-        self.visualise_explored_moves();
-        println!("board for merge: ");
-        board.visualise_explored_moves();
-        if let Some(contination_move) = self.find_continuation_mut(move_taken) {
-            if contination_move.continuation.is_empty() {
-                self.populate_empty(move_taken, board);
-            } else {
-                if let Some(mut alt_contination) = board.find_continuation_remove(move_taken) {
-                    alt_contination
-                        .continuation
-                        .drain()
-                        .for_each(|(_, (pm, b))| {
-                            contination_move.merge(&pm, b);
-                        })
+    pub fn merge(&mut self, mut to_merge: BoardContinuation) {
+        to_merge
+            .continuation
+            .drain()
+            .for_each(|(_, (amove, sub_continuation))| {
+                if let Some(found_in_self) = self.find_continuation_mut(&amove) {
+                    found_in_self.merge(sub_continuation);
                 } else {
-                    panic!("{:?} board was not better built than self", move_taken);
+                    self.continuation.insert((amove, sub_continuation));
                 }
-            }
-        } else {
-            self.populate_empty(move_taken, board);
-        }
-    }
-
-    fn populate_empty(&mut self, move_taken: &PossibleMove, mut board: BoardContinuation) {
-        if let Some(continuation_move_b) = board.find_continuation_remove(move_taken) {
-            self.continuation
-                .insert((move_taken.clone(), continuation_move_b));
-        }
+            });
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &(PossibleMove, BoardContinuation)> {
@@ -184,16 +178,59 @@ impl BoardContinuation {
     }
 
     #[allow(dead_code)]
-    pub fn visualise_explored_moves(&self) {
-        self.internal_visualise(0);
+    pub fn visualise_explored_moves(&self) -> String {
+        self.prefixed_visualise_explored_moves("")
     }
 
-    fn internal_visualise(&self, depth: u8) {
-        let prefix: String = (0..depth).map(|_| ' ').collect();
+    #[allow(dead_code)]
+    pub fn prefixed_visualise_explored_moves(&self, prefix: &str) -> String {
+        self.internal_visualise(prefix, 0)
+    }
+
+    fn internal_visualise(&self, prefix: &str, depth: usize) -> String {
         let next_depth = depth + 1;
-        for (a_move, its_board) in self.iter() {
-            println!("{prefix}{a_move}");
-            its_board.internal_visualise(next_depth);
-        }
+        self.iter()
+            .map(|(a_move, its_board)| {
+                format!(
+                    "{prefix}{:depth$}{a_move}\n{}",
+                    "",
+                    its_board.internal_visualise(prefix, next_depth)
+                )
+            })
+            .join("")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::baserules::board::PSBoard;
+    use crate::baserules::board_rep::PossibleMove;
+    use crate::engine::continuation::BoardContinuation;
+    use generational_arena::Arena;
+    use std::sync::Arc;
+
+    fn create_simple_cont() -> BoardContinuation {
+        let mut first = BoardContinuation {
+            board: Arc::new(PSBoard::default()),
+            adjusted_score: f32::NAN,
+            continuation: Arena::new(),
+        };
+        let e2e4 = PossibleMove::simple_from_uci("e2e4").unwrap();
+        first.insert_psboard(&e2e4, PSBoard::default().make_move_noncached(&e2e4));
+        first
+    }
+
+    #[test]
+    fn merge_two_simple() {
+        let mut acont = create_simple_cont();
+        let mut bcont = create_simple_cont();
+        let first_move = *bcont.keys().next().unwrap();
+        let e7e5 = PossibleMove::simple_from_uci("e7e5").unwrap();
+        let new_board = bcont.make_move_noncached(&e7e5);
+        let inner_cont = bcont.find_continuation_mut(&first_move).unwrap();
+        inner_cont.insert_psboard(&e7e5, new_board);
+        let btotal = bcont.total_continuation_boards();
+        acont.merge(bcont);
+        assert_eq!(acont.total_continuation_boards(), btotal);
     }
 }

@@ -29,7 +29,7 @@ use crate::baserules::board::Castling::{
 use crate::baserules::board_rep::{BoardPos, PossibleMove};
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::{Black, White};
-use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
+use crate::baserules::piece_kind::PieceKind::{King, Pawn, Rook};
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
 
@@ -64,7 +64,7 @@ pub const fn kingside_castle() -> EnumSet<Castling> {
 /// The internal representation of the chessboard after a given move.
 pub struct PSBoard {
     /// The actual board with the 8x8 squares
-    pub board: RawBoard,
+    pub raw: RawBoard,
     /// Identifies the color who should move next
     pub who_moves: PieceColor,
     /// Tells what kind of castling is allowed
@@ -93,38 +93,8 @@ impl Default for PSBoard {
     /// assert_eq!("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0", starting_position.to_fen());
     /// ```
     fn default() -> Self {
-        let mut raw = RawBoard::empty();
-        for row in 0..8 {
-            let (c, only_pawn) = match row {
-                0 => (White, None),
-                1 => (White, Some(Pawn)),
-                6 => (Black, Some(Pawn)),
-                7 => (Black, None),
-                _ => continue,
-            };
-            for col in 0..8 {
-                raw.set_loc(
-                    BoardPos(row, col),
-                    &Some(PieceState {
-                        kind: if only_pawn.is_some() {
-                            Pawn
-                        } else {
-                            match col {
-                                0 | 7 => Rook,
-                                1 | 6 => Knight,
-                                2 | 5 => Bishop,
-                                3 => Queen,
-                                4 => King,
-                                _ => panic!("Impossible"),
-                            }
-                        },
-                        color: c,
-                    }),
-                );
-            }
-        }
         PSBoard {
-            board: raw,
+            raw: RawBoard::default(),
             who_moves: White,
             castling: BlackKingSide | BlackQueenSide | WhiteKingSide | WhiteQueenSide,
             ep: None,
@@ -154,7 +124,7 @@ impl PSBoard {
     /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
     /// ```
     pub fn make_move_noncached(&self, the_move: &PossibleMove) -> Self {
-        let mut raw_board = self.board;
+        let mut raw_board = self.raw;
         let piece_potentially_taken = self.get_loc(the_move.the_move.to);
         {
             if let Some(ep) = &self.ep {
@@ -165,7 +135,7 @@ impl PSBoard {
                 {
                     // En passant was done, the long move pawn was taken
                     raw_board.set_loc(
-                        BoardPos(the_move.the_move.from.0, the_move.the_move.to.1),
+                        (the_move.the_move.from.0, the_move.the_move.to.1).into(),
                         &None,
                     );
                 }
@@ -191,7 +161,7 @@ impl PSBoard {
             self.determine_castling_rights(&current_piece, the_move, piece_potentially_taken);
         PSBoard {
             score: raw_board.score(),
-            board: raw_board,
+            raw: raw_board,
             who_moves: match current_piece.color {
                 White => Black,
                 Black => White,
@@ -199,10 +169,13 @@ impl PSBoard {
             ep: if current_piece.kind == Pawn
                 && (the_move.the_move.from.0 - the_move.the_move.to.0).abs() == 2
             {
-                Some(BoardPos(
-                    (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
-                    the_move.the_move.to.1,
-                ))
+                Some(
+                    (
+                        (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
+                        the_move.the_move.to.1,
+                    )
+                        .into(),
+                )
             } else {
                 None
             },
@@ -298,12 +271,12 @@ impl PSBoard {
     /// use dbce::baserules::piece_state::PieceState;
     ///
     /// let board = PSBoard::default();
-    /// let king = board.get_loc(BoardPos(0,4));
+    /// let king = board.get_loc("e1".try_into().unwrap());
     /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
     /// ```
     #[inline]
-    pub fn get_loc(&self, BoardPos(row, col): BoardPos) -> &Option<PieceState> {
-        &self.board[BoardPos(row, col)]
+    pub fn get_loc(&self, pos: BoardPos) -> &Option<PieceState> {
+        &self.raw[pos]
     }
 }
 
@@ -313,12 +286,11 @@ mod test {
         BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
     };
     use crate::baserules::board::{black_can_castle, queenside_castle, PSBoard};
-    use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
+    use crate::baserules::board_rep::{BaseMove, PossibleMove};
     use crate::baserules::piece_color::PieceColor::White;
     use crate::baserules::piece_kind::PieceKind::{King, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
     use enumset::enum_set;
-    use std::str::FromStr;
 
     #[test]
     fn check_castling_when_rook_taken() {
@@ -406,18 +378,14 @@ mod test {
                 kind: King,
                 color: White
             },
-            after_move
-                .get_loc(BoardPos::from_str("g1").unwrap())
-                .unwrap()
+            after_move.get_loc("g1".try_into().unwrap()).unwrap()
         );
         assert_eq!(
             PieceState {
                 kind: Rook,
                 color: White
             },
-            after_move
-                .get_loc(BoardPos::from_str("f1").unwrap())
-                .unwrap()
+            after_move.get_loc("f1".try_into().unwrap()).unwrap()
         );
     }
 }

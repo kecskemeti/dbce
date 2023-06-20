@@ -86,40 +86,11 @@ impl Display for PSBoard {
     /// assert_eq!("Black to move, move 1\n  abcdefgh\n8 ♜-♝♚---♜ 8\n7 ♟--♟♗♟♘♟ 7\n6 ♞----♞-- 6\n5 -♟-♘♙--♙ 5\n4 ------♙- 4\n3 ---♙---- 3\n2 ♙-♙-♔--- 2\n1 ♛-----♝- 1\n  abcdefgh\n",formatted);
     /// ```
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        static COL: &str = "  abcdefgh\n";
-        let mut return_string = String::new();
-        return_string.push_str(
-            format!(
-                "{:?} to move, move {}\n{COL}",
-                self.who_moves, self.move_count
-            )
-            .as_str(),
-        );
-        for row in (0..8).rev() {
-            for col in 0..8 {
-                let row_as_str = (row + 1).to_string();
-                let (prefix, suffix) = if col == 0 {
-                    (format!("{} ", row_as_str), String::new())
-                } else if col == 7 {
-                    (String::new(), format!(" {}", row_as_str))
-                } else {
-                    (String::new(), String::new())
-                };
-                return_string.push_str(&format!(
-                    "{}{}{}",
-                    prefix,
-                    if let Some(ps) = &self.get_loc(BoardPos(row, col)) {
-                        format!("{}", ps.to_unicode()).pop().unwrap()
-                    } else {
-                        '-'
-                    },
-                    suffix
-                ));
-            }
-            return_string.push('\n');
-        }
-        return_string.push_str(COL);
-        write!(f, "{return_string}")
+        write!(
+            f,
+            "{:?} to move, move {}\n{}",
+            self.who_moves, self.move_count, self.raw
+        )
     }
 }
 
@@ -154,7 +125,7 @@ impl PSBoard {
                                 Black
                             };
                             let kind = PieceKind::from_char(piece_info);
-                            raw.set_loc(BoardPos(row, col), &Some(PieceState { kind, color }));
+                            raw.set_loc((row, col).into(), &Some(PieceState { kind, color }));
                             col += 1;
                         }
                     }
@@ -183,10 +154,13 @@ impl PSBoard {
                     let mut fen_chars = fen_part.chars();
                     let first_char = fen_chars.next().unwrap();
                     if first_char != '-' {
-                        ep = Some(BoardPos(
-                            first_char as i8 - 'a' as i8,
-                            fen_chars.next().unwrap() as i8 - '1' as i8,
-                        ));
+                        ep = Some(
+                            (
+                                first_char as i8 - 'a' as i8,
+                                fen_chars.next().unwrap() as i8 - '1' as i8,
+                            )
+                                .into(),
+                        );
                     }
                 }
                 4 => half = Some(fen_part.parse().unwrap()),
@@ -198,7 +172,7 @@ impl PSBoard {
         }
         PSBoard {
             score: raw.score(),
-            board: raw,
+            raw: raw,
             who_moves: if let Some(mover) = next_move {
                 mover
             } else {
@@ -234,7 +208,7 @@ impl PSBoard {
         for row in (0..8).rev() {
             since_piece = 0;
             for col in 0..8 {
-                if let Some(ps) = self.board[BoardPos(row, col)] {
+                if let Some(ps) = self.raw[(row, col).into()] {
                     if since_piece != 0 {
                         ret.push((since_piece + b'0') as char);
                     }

@@ -33,14 +33,30 @@ use std::str::FromStr;
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
 pub struct BoardPos(pub i8, pub i8);
 
-impl FromStr for BoardPos {
-    type Err = AnyError;
+impl TryFrom<&str> for BoardPos {
+    type Error = AnyError;
+    /// Allows loading absolute board coordinates to a BoardPos struct
+    fn try_from(coord: &str) -> Result<Self, Self::Error> {
+        let row = i8::from_str(&coord[1..2])? - 1;
+        let col = (coord.as_bytes()[0] - b'a') as i8;
+        if (0..8).contains(&row) && (0..8).contains(&col) {
+            Ok(BoardPos(row, col))
+        } else {
+            Err(format!("Row and column index out of range for {coord}").into())
+        }
+    }
+}
 
-    fn from_str(coord: &str) -> Result<Self, Self::Err> {
-        Ok(BoardPos(
-            i8::from_str(&coord[1..2])? - 1,
-            (coord.as_bytes()[0] - b'a') as i8,
-        ))
+impl From<(i8, i8)> for BoardPos {
+    /// Loads a tuple without checking for correctness!
+    fn from(value: (i8, i8)) -> Self {
+        BoardPos(value.0, value.1)
+    }
+}
+
+impl BoardPos {
+    pub fn transform_vec(in_vec: Vec<(i8, i8)>) -> Vec<BoardPos> {
+        in_vec.into_iter().map(|tuple| tuple.into()).collect()
     }
 }
 
@@ -54,6 +70,7 @@ pub struct BaseMove {
 }
 
 impl BaseMove {
+    /// Allows easy comparison of moves by compacting the move into a single 32 bit integer
     fn to_u32(self) -> u32 {
         (self.from.0 as u32) << 24
             | (self.from.1 as u32) << 16
@@ -71,8 +88,8 @@ impl BaseMove {
     /// ```
     /// use dbce::baserules::board_rep::{BaseMove, BoardPos};
     /// let rook_a3 = BaseMove {
-    ///     from: BoardPos(0,0),
-    ///     to: BoardPos(2,0)
+    ///     from: "a1".try_into().unwrap(),
+    ///     to: "a3".try_into().unwrap()
     /// };
     /// let potential_parsed_rook_move = BaseMove::from_uci("a1a3");
     /// assert!(potential_parsed_rook_move.is_ok());
@@ -80,8 +97,8 @@ impl BaseMove {
     /// ```
     pub fn from_uci(uci: &str) -> IntResult<Self> {
         Ok(Self {
-            from: BoardPos::from_str(&uci[0..2])?,
-            to: BoardPos::from_str(&uci[2..4])?,
+            from: uci[0..2].try_into()?,
+            to: uci[2..4].try_into()?,
         })
     }
 }
@@ -158,7 +175,7 @@ impl Display for PossibleMove {
     /// ```
     /// use dbce::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
     /// let rook_lift = PossibleMove {
-    ///     the_move: BaseMove { from: BoardPos(0,0), to: BoardPos(2,0)},
+    ///     the_move: BaseMove { from: "a1".try_into().unwrap(), to: "a3".try_into().unwrap()},
     ///     pawn_promotion: None,
     ///     rook: None,
     /// };
@@ -224,10 +241,10 @@ mod test {
     #[test]
     fn clone_eq_test() {
         let pm = PossibleMove::simple_from_uci("h4h5").unwrap();
-        let clone_pm = pm.clone();
+        let copy_pm = pm;
         let pm_ref = &pm;
-        let pm_clone_ref = &clone_pm;
-        assert!(pm_ref == pm_clone_ref);
+        let pm_clone_ref = &copy_pm;
+        assert_eq!(pm_ref, pm_clone_ref);
     }
 
     #[test]
