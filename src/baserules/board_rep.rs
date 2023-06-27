@@ -25,38 +25,97 @@ use crate::baserules::piece_kind::PieceKind;
 use crate::util::{AnyError, IntResult};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops;
 use std::str::FromStr;
 
 /// Used to represent the board position
 /// For example: square a1 = (0,0), square h8 (7,7)
 /// Also used to represent relative locations on the board (hence the signedness)
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
-pub struct BoardPos(pub i8, pub i8);
+pub struct RelativeBoardPos(pub i8, pub i8);
 
-impl TryFrom<&str> for BoardPos {
+impl TryFrom<(i8, i8)> for RelativeBoardPos {
     type Error = AnyError;
     /// Allows loading absolute board coordinates to a BoardPos struct
-    fn try_from(coord: &str) -> Result<Self, Self::Error> {
-        let row = i8::from_str(&coord[1..2])? - 1;
-        let col = (coord.as_bytes()[0] - b'a') as i8;
-        if (0..8).contains(&row) && (0..8).contains(&col) {
-            Ok(BoardPos(row, col))
+    fn try_from((row, col): (i8, i8)) -> Result<Self, Self::Error> {
+        if (-8..8).contains(&row) && (-8..8).contains(&col) {
+            Ok(RelativeBoardPos(row, col))
         } else {
-            Err(format!("Row and column index out of range for {coord}").into())
+            Err(format!("Row and column index out of range for {row},{col}").into())
         }
     }
 }
 
-impl From<(i8, i8)> for BoardPos {
-    /// Loads a tuple without checking for correctness!
-    fn from(value: (i8, i8)) -> Self {
-        BoardPos(value.0, value.1)
+#[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
+pub struct AbsoluteBoardPos(pub u8, pub u8);
+
+impl TryFrom<&str> for AbsoluteBoardPos {
+    type Error = AnyError;
+    /// Allows loading absolute board coordinates to a BoardPos struct
+    fn try_from(coord: &str) -> Result<Self, Self::Error> {
+        let row = u8::from_str(&coord[1..2])? - 1;
+        let col: u8 = (coord.as_bytes()[0] - b'a').try_into()?;
+        (row, col).try_into()
     }
 }
 
-impl BoardPos {
-    pub fn transform_vec(in_vec: Vec<(i8, i8)>) -> Vec<BoardPos> {
-        in_vec.into_iter().map(|tuple| tuple.into()).collect()
+impl TryFrom<(u8, u8)> for AbsoluteBoardPos {
+    type Error = AnyError;
+    /// Allows loading absolute board coordinates to a BoardPos struct
+    fn try_from((row, col): (u8, u8)) -> Result<Self, Self::Error> {
+        if (0..8).contains(&row) && (0..8).contains(&col) {
+            Ok(AbsoluteBoardPos(row, col))
+        } else {
+            Err(format!("Row and column index out of range for {row},{col}").into())
+        }
+    }
+}
+
+impl ops::Add<RelativeBoardPos> for AbsoluteBoardPos {
+    type Output = AbsoluteBoardPos;
+
+    fn add(self, rhs: RelativeBoardPos) -> Self::Output {
+        self.fallible_add(rhs).unwrap()
+    }
+}
+
+impl AbsoluteBoardPos {
+    fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
+        let row = self.0 as i8 + rhs.0;
+        let col = self.1 as i8 + rhs.1;
+        (row.try_into()?, col.try_into()?).try_into()?
+    }
+}
+
+impl ops::AddAssign<RelativeBoardPos> for AbsoluteBoardPos {
+    fn add_assign(&mut self, rhs: RelativeBoardPos) {
+        self.0 = (self.0 as i8 + rhs.0) as u8;
+        self.1 = (self.1 as i8 + rhs.1) as u8;
+    }
+}
+
+pub trait TryWithPanic<T> {
+    fn transform(self) -> T;
+}
+
+impl<AbsoluteBoardPos> TryWithPanic<AbsoluteBoardPos> for (u8, u8) {
+    fn transform(self) -> AbsoluteBoardPos {
+        self.try_into().unwrap()
+    }
+}
+
+impl<RelativeBoardPos> TryWithPanic<RelativeBoardPos> for (i8, i8) {
+    fn transform(self) -> RelativeBoardPos {
+        self.try_into().unwrap()
+    }
+}
+
+impl RelativeBoardPos {
+    pub fn transform_vec(in_vec: Vec<(i8, i8)>) -> Vec<RelativeBoardPos> {
+        in_vec
+            .into_iter()
+            .map(|tuple| tuple.try_into().unwrap())
+            .collect()
     }
 }
 
@@ -64,9 +123,9 @@ impl BoardPos {
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
 pub struct BaseMove {
     /// The square where the piece started to move from
-    pub from: BoardPos,
+    pub from: AbsoluteBoardPos,
     /// The square where the piece ended up on
-    pub to: BoardPos,
+    pub to: AbsoluteBoardPos,
 }
 
 impl BaseMove {
@@ -78,7 +137,7 @@ impl BaseMove {
             | self.to.1 as u32
     }
 
-    pub fn from_two_pos(from: BoardPos, to: BoardPos) -> Self {
+    pub fn from_two_pos(from: AbsoluteBoardPos, to: AbsoluteBoardPos) -> Self {
         BaseMove { from, to }
     }
 
@@ -160,8 +219,8 @@ impl Default for PossibleMove {
     fn default() -> Self {
         Self {
             the_move: BaseMove {
-                from: BoardPos(0, 0),
-                to: BoardPos(1, 0),
+                from: AbsoluteBoardPos(0, 0),
+                to: AbsoluteBoardPos(1, 0),
             },
             pawn_promotion: None,
             rook: None,
@@ -203,7 +262,7 @@ impl Debug for PossibleMove {
 
 #[cfg(test)]
 mod test {
-    use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
+    use crate::baserules::board_rep::{AbsoluteBoardPos, BaseMove, PossibleMove};
     use crate::baserules::piece_color::PieceColor::{Black, White};
     use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
@@ -251,27 +310,27 @@ mod test {
     fn ucitest() {
         let pawn_promote = PossibleMove {
             the_move: BaseMove {
-                from: BoardPos(1, 1),
-                to: BoardPos(0, 1),
+                from: AbsoluteBoardPos(1, 1),
+                to: AbsoluteBoardPos(0, 1),
             },
             pawn_promotion: Some(Queen),
             rook: None,
         };
         let black_short_castles = PossibleMove {
             the_move: BaseMove {
-                from: BoardPos(7, 3),
-                to: BoardPos(7, 1),
+                from: AbsoluteBoardPos(7, 3),
+                to: AbsoluteBoardPos(7, 1),
             },
             pawn_promotion: None,
             rook: Some(BaseMove {
-                from: BoardPos(7, 0),
-                to: BoardPos(7, 2),
+                from: AbsoluteBoardPos(7, 0),
+                to: AbsoluteBoardPos(7, 2),
             }),
         };
         let knight_moves = PossibleMove {
             the_move: BaseMove {
-                from: BoardPos(7, 6),
-                to: BoardPos(5, 5),
+                from: AbsoluteBoardPos(7, 6),
+                to: AbsoluteBoardPos(5, 5),
             },
             pawn_promotion: None,
             rook: None,

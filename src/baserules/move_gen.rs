@@ -24,7 +24,9 @@
 use crate::baserules::board::{
     black_can_castle, kingside_castle, queenside_castle, white_can_castle, Castling, PSBoard,
 };
-use crate::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
+use crate::baserules::board_rep::{
+    AbsoluteBoardPos, BaseMove, PossibleMove, RelativeBoardPos, TryWithPanic,
+};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
@@ -47,7 +49,12 @@ fn a(k: KingMove) {
 }*/
 
 pub(crate) trait KingMove: Sync {
-    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>);
+    fn gen_king_moves(
+        &self,
+        board: &PSBoard,
+        ab: AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    );
     //fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>);
 }
 
@@ -56,8 +63,14 @@ pub struct Castle(pub &'static NotCastle);
 pub static CASTLE_ALLOWED: Castle = Castle(&CASTLE_FORBIDDEN);
 
 impl KingMove for Castle {
-    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        self.0.gen_king_moves(board, row, col, the_moves);
+    fn gen_king_moves(
+        &self,
+        board: &PSBoard,
+        ab: AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    ) {
+        self.0.gen_king_moves(board, ab, the_moves);
+        let AbsoluteBoardPos(row, col) = ab;
         // Castling:
         if row == board.who_moves.piece_row() && col == 4 {
             // the king is in its original location we need a more in depth check on castling
@@ -67,13 +80,13 @@ impl KingMove for Castle {
                 // there are castling opportunities
                 static CASTLING_SIDE: [EnumSet<Castling>; 2] =
                     [queenside_castle(), kingside_castle()];
-                static CASTLING_RANGES: [(i8, i8); 2] = [(1, 3), (5, 6)];
-                static CASTLING_MOVES: [[i8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
+                static CASTLING_RANGES: [(u8, u8); 2] = [(1, 3), (5, 6)];
+                static CASTLING_MOVES: [[u8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
                 'outer: for (idx, side) in CASTLING_SIDE.iter().enumerate() {
                     if !board.castling.is_disjoint(*side) {
                         let mut castling_range_free = true;
                         for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
-                            castling_range_free &= board.get_loc((row, lc).into()).is_none();
+                            castling_range_free &= board.get_loc((row, lc).transform()).is_none();
                             if !castling_range_free {
                                 continue 'outer;
                             }
@@ -102,13 +115,13 @@ impl KingMove for Castle {
                                 // would not cross check
                                 the_moves.push(PossibleMove {
                                     the_move: BaseMove {
-                                        from: (row, col).into(),
-                                        to: (row, CASTLING_MOVES[idx][0]).into(),
+                                        from: (row, col).transform(),
+                                        to: (row, CASTLING_MOVES[idx][0]).transform(),
                                     },
                                     pawn_promotion: None,
                                     rook: Some(BaseMove {
-                                        from: (row, CASTLING_MOVES[idx][1]).into(),
-                                        to: (row, CASTLING_MOVES[idx][2]).into(),
+                                        from: (row, CASTLING_MOVES[idx][1]).transform(),
+                                        to: (row, CASTLING_MOVES[idx][2]).transform(),
                                     }),
                                 });
                             }
@@ -124,7 +137,12 @@ pub struct NotCastle;
 pub static CASTLE_FORBIDDEN: NotCastle = NotCastle;
 
 impl KingMove for NotCastle {
-    fn gen_king_moves(&self, board: &PSBoard, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+    fn gen_king_moves(
+        &self,
+        board: &PSBoard,
+        AbsoluteBoardPos(row, col): AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    ) {
         board.gen_moves_from_dirs(
             row,
             col,
@@ -218,15 +236,15 @@ impl PSBoard {
     /// Generates a set of valid moves based on the coordinate adjustments passed in via the iterator
     /// Immediately deposits the moves in the output vector
     #[inline]
-    fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a BoardPos>, J>(
+    fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>, J>(
         &self,
         row: i8,
-        col: i8,
+        col: i8, // absolute
         on_board_rule: &J,
         possible_moves: I,
         out: &mut Vec<PossibleMove>,
     ) where
-        J: Fn(&Self, BoardPos) -> bool,
+        J: Fn(&Self, AbsoluteBoardPos) -> bool,
     {
         out.extend(
             possible_moves
@@ -235,6 +253,7 @@ impl PSBoard {
                 .filter_map(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
         );
     }
+    //falible add
 
     /// This does the same as `gen_moves_from_dirs`, but stops at the first occasion
     /// when moves are no longer possible
