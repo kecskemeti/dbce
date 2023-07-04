@@ -81,9 +81,9 @@ impl ops::Add<RelativeBoardPos> for AbsoluteBoardPos {
 
 impl AbsoluteBoardPos {
     pub fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
-        let row = self.0 as i8 + rhs.0;
-        let col = self.1 as i8 + rhs.1;
-        (row.try_into()?, col.try_into()?).try_into()?
+        let row = (self.0 as i8 + rhs.0) as u8;
+        let col = (self.1 as i8 + rhs.1) as u8;
+        (row.try_into()?, col.try_into()?).try_into()
     }
 }
 
@@ -94,21 +94,29 @@ impl ops::AddAssign<RelativeBoardPos> for AbsoluteBoardPos {
     }
 }
 
-pub trait TryWithPanic<T> {
+/*
+pub trait TryWithPanic<T: Debug> {
     fn transform(self) -> T;
 }
 
-impl<AbsoluteBoardPos> TryWithPanic<AbsoluteBoardPos> for (u8, u8) {
+impl<AbsoluteBoardPos: std::convert::TryFrom<(u8, u8)> + std::fmt::Debug>
+    TryWithPanic<AbsoluteBoardPos> for (u8, u8)
+{
     fn transform(self) -> AbsoluteBoardPos {
         self.try_into().unwrap()
     }
 }
 
-impl<RelativeBoardPos> TryWithPanic<RelativeBoardPos> for (i8, i8) {
-    fn transform(self) -> RelativeBoardPos {
+impl<RelativeBoardPos: std::convert::TryFrom<(i8, i8)> + std::fmt::Debug>
+    TryWithPanic<RelativeBoardPos> for (i8, i8)
+{
+    fn transform(self) -> RelativeBoardPos
+    where
+        <RelativeBoardPos as TryFrom<(i8, i8)>>::Error: Debug,
+    {
         self.try_into().unwrap()
     }
-}
+}*/
 
 impl RelativeBoardPos {
     pub fn transform_vec(in_vec: Vec<(i8, i8)>) -> Vec<RelativeBoardPos> {

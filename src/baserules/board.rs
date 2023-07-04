@@ -136,7 +136,9 @@ impl PSBoard {
                 {
                     // En passant was done, the long move pawn was taken
                     raw_board.set_loc(
-                        (the_move.the_move.from.0, the_move.the_move.to.1).into(),
+                        (the_move.the_move.from.0, the_move.the_move.to.1)
+                            .try_into()
+                            .unwrap(),
                         &None,
                     );
                 }

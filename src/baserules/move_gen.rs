@@ -24,13 +24,12 @@
 use crate::baserules::board::{
     black_can_castle, kingside_castle, queenside_castle, white_can_castle, Castling, PSBoard,
 };
-use crate::baserules::board_rep::{
-    AbsoluteBoardPos, BaseMove, PossibleMove, RelativeBoardPos, TryWithPanic,
-};
+use crate::baserules::board_rep::{AbsoluteBoardPos, BaseMove, PossibleMove, RelativeBoardPos};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
 use enumset::EnumSet;
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::cmp::{max, min};
 
@@ -86,7 +85,8 @@ impl KingMove for Castle {
                     if !board.castling.is_disjoint(*side) {
                         let mut castling_range_free = true;
                         for lc in CASTLING_RANGES[idx].0..CASTLING_RANGES[idx].1 {
-                            castling_range_free &= board.get_loc((row, lc).transform()).is_none();
+                            castling_range_free &=
+                                board.get_loc((row, lc).try_into().unwrap()).is_none();
                             if !castling_range_free {
                                 continue 'outer;
                             }
@@ -115,13 +115,13 @@ impl KingMove for Castle {
                                 // would not cross check
                                 the_moves.push(PossibleMove {
                                     the_move: BaseMove {
-                                        from: (row, col).transform(),
-                                        to: (row, CASTLING_MOVES[idx][0]).transform(),
+                                        from: (row, col).try_into().unwrap(),
+                                        to: (row, CASTLING_MOVES[idx][0]).try_into().unwrap(),
                                     },
                                     pawn_promotion: None,
                                     rook: Some(BaseMove {
-                                        from: (row, CASTLING_MOVES[idx][1]).transform(),
-                                        to: (row, CASTLING_MOVES[idx][2]).transform(),
+                                        from: (row, CASTLING_MOVES[idx][1]).try_into().unwrap(),
+                                        to: (row, CASTLING_MOVES[idx][2]).try_into().unwrap(),
                                     }),
                                 });
                             }
@@ -277,93 +277,93 @@ impl PSBoard {
         out: &mut Vec<PossibleMove>,
     ) {
         // transform vec rel board
-        for BoardPos(x, y) in vecs {
-            static DIRECTIONAL_MOVES: [[BoardPos; 7]; 9] = [
+        for RelativeBoardPos(x, y) in vecs {
+            lazy_static! { static ref DIRECTIONAL_MOVES: [Vec<RelativeBoardPos>; 9] = [
                 // this array is laid out so it is easy to map into it with the below formula using just the input coords
-                [
-                    BoardPos(-1, -1),
-                    BoardPos(-2, -2),
-                    BoardPos(-3, -3),
-                    BoardPos(-4, -4),
-                    BoardPos(-5, -5),
-                    BoardPos(-6, -6),
-                    BoardPos(-7, -7),
-                ],
-                [
-                    BoardPos(-1, 0),
-                    BoardPos(-2, 0),
-                    BoardPos(-3, 0),
-                    BoardPos(-4, 0),
-                    BoardPos(-5, 0),
-                    BoardPos(-6, 0),
-                    BoardPos(-7, 0),
-                ],
-                [
-                    BoardPos(-1, 1),
-                    BoardPos(-2, 2),
-                    BoardPos(-3, 3),
-                    BoardPos(-4, 4),
-                    BoardPos(-5, 5),
-                    BoardPos(-6, 6),
-                    BoardPos(-7, 7),
-                ],
-                [
-                    BoardPos(0, -1),
-                    BoardPos(0, -2),
-                    BoardPos(0, -3),
-                    BoardPos(0, -4),
-                    BoardPos(0, -5),
-                    BoardPos(0, -6),
-                    BoardPos(0, -7),
-                ],
-                [
+                RelativeBoardPos::transform_vec(vec![
+                    (-1, -1),
+                    (-2, -2),
+                    (-3, -3),
+                    (-4, -4),
+                    (-5, -5),
+                    (-6, -6),
+                    (-7, -7),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (-1, 0),
+                    (-2, 0),
+                    (-3, 0),
+                    (-4, 0),
+                    (-5, 0),
+                    (-6, 0),
+                    (-7, 0),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (-1, 1),
+                    (-2, 2),
+                    (-3, 3),
+                    (-4, 4),
+                    (-5, 5),
+                    (-6, 6),
+                    (-7, 7),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (0, -1),
+                    (0, -2),
+                    (0, -3),
+                    (0, -4),
+                    (0, -5),
+                    (0, -6),
+                    (0, -7),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
                     // filler to make the x-y mapping easier
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                    BoardPos(0, 0),
-                ],
-                [
-                    BoardPos(0, 1),
-                    BoardPos(0, 2),
-                    BoardPos(0, 3),
-                    BoardPos(0, 4),
-                    BoardPos(0, 5),
-                    BoardPos(0, 6),
-                    BoardPos(0, 7),
-                ],
-                [
-                    BoardPos(1, -1),
-                    BoardPos(2, -2),
-                    BoardPos(3, -3),
-                    BoardPos(4, -4),
-                    BoardPos(5, -5),
-                    BoardPos(6, -6),
-                    BoardPos(7, -7),
-                ],
-                [
-                    BoardPos(1, 0),
-                    BoardPos(2, 0),
-                    BoardPos(3, 0),
-                    BoardPos(4, 0),
-                    BoardPos(5, 0),
-                    BoardPos(6, 0),
-                    BoardPos(7, 0),
-                ],
-                [
-                    BoardPos(1, 1),
-                    BoardPos(2, 2),
-                    BoardPos(3, 3),
-                    BoardPos(4, 4),
-                    BoardPos(5, 5),
-                    BoardPos(6, 6),
-                    BoardPos(7, 7),
-                ],
-            ];
-            let a = DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
+                    (0, 0),
+                    (0, 0),
+                    (0, 0),
+                    (0, 0),
+                    (0, 0),
+                    (0, 0),
+                    (0, 0),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (0, 1),
+                    (0, 2),
+                    (0, 3),
+                    (0, 4),
+                    (0, 5),
+                    (0, 6),
+                    (0, 7),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (1, -1),
+                    (2, -2),
+                    (3, -3),
+                    (4, -4),
+                    (5, -5),
+                    (6, -6),
+                    (7, -7),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (1, 0),
+                    (2, 0),
+                    (3, 0),
+                    (4, 0),
+                    (5, 0),
+                    (6, 0),
+                    (7, 0),
+                ]),
+                RelativeBoardPos::transform_vec(vec![
+                    (1, 1),
+                    (2, 2),
+                    (3, 3),
+                    (4, 4),
+                    (5, 5),
+                    (6, 6),
+                    (7, 7),
+                ]),
+            ];}
+            let a = &DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
             let allow_next = RefCell::new(true);
             self.gen_moves_from_dirs_with_stop(
                 position,
