@@ -26,7 +26,7 @@ extern crate rand;
 use crate::baserules::board::Castling::{
     BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
 };
-use crate::baserules::board_rep::{BoardPos, PossibleMove};
+use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{King, Pawn, Rook};
@@ -35,6 +35,7 @@ use crate::baserules::rawboard::RawBoard;
 
 use enumset::{enum_set, EnumSet, EnumSetType};
 
+use super::board_rep::AbsoluteBoardPos;
 use super::move_gen::{KingMove, CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 
 #[derive(EnumSetType, Debug)]
@@ -72,7 +73,7 @@ pub struct PSBoard {
     /// move resolver
     pub(crate) king_move_gen: &'static dyn KingMove,
     /// Tells if there is an en-passant move possible at the given location
-    pub ep: Option<BoardPos>,
+    pub ep: Option<AbsoluteBoardPos>,
     /// The number of moves done so far
     pub move_count: u16,
     /// allows draw condition check
@@ -135,7 +136,9 @@ impl PSBoard {
                 {
                     // En passant was done, the long move pawn was taken
                     raw_board.set_loc(
-                        (the_move.the_move.from.0, the_move.the_move.to.1).into(),
+                        (the_move.the_move.from.0, the_move.the_move.to.1)
+                            .try_into()
+                            .unwrap(),
                         &None,
                     );
                 }
@@ -167,14 +170,15 @@ impl PSBoard {
                 Black => White,
             },
             ep: if current_piece.kind == Pawn
-                && (the_move.the_move.from.0 - the_move.the_move.to.0).abs() == 2
+                && (the_move.the_move.from.0 as i8 - the_move.the_move.to.0 as i8).abs() == 2
             {
                 Some(
                     (
                         (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
                         the_move.the_move.to.1,
                     )
-                        .into(),
+                        .try_into()
+                        .unwrap(),
                 )
             } else {
                 None
@@ -275,7 +279,7 @@ impl PSBoard {
     /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
     /// ```
     #[inline]
-    pub fn get_loc(&self, pos: BoardPos) -> &Option<PieceState> {
+    pub fn get_loc(&self, pos: AbsoluteBoardPos) -> &Option<PieceState> {
         &self.raw[pos]
     }
 }

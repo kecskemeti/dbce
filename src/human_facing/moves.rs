@@ -37,7 +37,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
     let mut castling = false;
     let mut internal_move = None;
     match first_char {
-        'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => col.push((first_char as u8 - b'a') as i8),
+        'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => col.push(first_char as u8 - b'a'),
         'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = PieceKind::from_char(first_char),
         'O' => castling = true,
         _ => panic!("Unexpected chess notation"),
@@ -49,26 +49,26 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             //short
             internal_move = Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (castle_row, 4).into(),
-                    to: (castle_row, 6).into(),
+                    from: (castle_row, 4).try_into().unwrap(),
+                    to: (castle_row, 6).try_into().unwrap(),
                 },
                 pawn_promotion: None,
                 rook: Some(BaseMove {
-                    from: (castle_row, 7).into(),
-                    to: (castle_row, 5).into(),
+                    from: (castle_row, 7).try_into().unwrap(),
+                    to: (castle_row, 5).try_into().unwrap(),
                 }),
             });
         } else {
             //long
             internal_move = Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (castle_row, 4).into(),
-                    to: (castle_row, 2).into(),
+                    from: (castle_row, 4).try_into().unwrap(),
+                    to: (castle_row, 2).try_into().unwrap(),
                 },
                 pawn_promotion: None,
                 rook: Some(BaseMove {
-                    from: (castle_row, 0).into(),
-                    to: (castle_row, 3).into(),
+                    from: (castle_row, 0).try_into().unwrap(),
+                    to: (castle_row, 3).try_into().unwrap(),
                 }),
             });
         }
@@ -81,11 +81,11 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             if let Some(consecutive) = first_char {
                 match consecutive {
                     'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
-                        col.push((consecutive as u8 - b'a') as i8)
+                        col.push(consecutive as u8 - b'a')
                     }
                     'x' | '+' | '#' => {}
                     '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => {
-                        row.push((consecutive as u8 - b'1') as i8)
+                        row.push(consecutive as u8 - b'1')
                     }
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
@@ -220,8 +220,12 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
         }
     } else {
         let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
-        let rook_from = (the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 }).into();
-        let rook_to = (the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 }).into();
+        let rook_from = (the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 })
+            .try_into()
+            .unwrap();
+        let rook_to = (the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 })
+            .try_into()
+            .unwrap();
         PossibleMove {
             the_move,
             pawn_promotion: None,

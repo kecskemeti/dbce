@@ -20,7 +20,7 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board_rep::BoardPos;
+use crate::baserules::board_rep::RelativeBoardPos;
 use enum_iterator::{all, Sequence};
 use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
@@ -62,10 +62,10 @@ lazy_static! {
     /// Lists all possible moves for the pieces or all possible directions if pieces can slide across the board
     /// For kings and knights it is all possible relative moves compared to their current square
     /// For bishops, rooks and queens it is listing directional vectors that point towards the pieces possible future positions achievable in a single step
-    static ref PIECE_MOVES: EnumMap<PieceKind, Vec<BoardPos>> = enum_map! {
-        Bishop => BoardPos::transform_vec(vec![(-1, -1), (1, 1), (-1, 1), (1, -1)]),
-        Rook => BoardPos::transform_vec(vec![(-1, 0), (1, 0), (0, 1), (0, -1)]),
-        Knight => BoardPos::transform_vec(vec![
+    static ref PIECE_MOVES: EnumMap<PieceKind, Vec<RelativeBoardPos>> = enum_map! {
+        Bishop => RelativeBoardPos::transform_vec(vec![(-1, -1), (1, 1), (-1, 1), (1, -1)]),
+        Rook => RelativeBoardPos::transform_vec(vec![(-1, 0), (1, 0), (0, 1), (0, -1)]),
+        Knight => RelativeBoardPos::transform_vec(vec![
            (-1, -2),
             (-1, 2),
             (-2, -1),
@@ -75,7 +75,7 @@ lazy_static! {
             (2, -1),
             (2, 1),
         ]),
-        King | Queen => BoardPos::transform_vec(vec![
+        King | Queen => RelativeBoardPos::transform_vec(vec![
         (-1, -1),
         (1, 1),
         (-1, 1),
@@ -138,7 +138,7 @@ impl PieceKind {
 
     /// Allows querying the kinds of moves we can make with a particular piece. Note pawn moves are handled differently as they depend on the colour and state of the pawn
     #[inline]
-    pub fn vec_moves(self) -> &'static Vec<BoardPos> {
+    pub fn vec_moves(self) -> &'static Vec<RelativeBoardPos> {
         &PIECE_MOVES[self]
     }
 

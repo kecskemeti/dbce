@@ -24,7 +24,7 @@ use crate::baserules::board::Castling::{
     BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
 };
 use crate::baserules::board::{Castling, PSBoard};
-use crate::baserules::board_rep::BoardPos;
+use crate::baserules::board_rep::AbsoluteBoardPos;
 use crate::baserules::move_gen::{CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind;
@@ -113,7 +113,7 @@ impl PSBoard {
                     let mut col = 0;
                     for piece_info in fen_part.chars() {
                         if piece_info.is_ascii_digit() {
-                            col += piece_info as i8 - b'0' as i8;
+                            col += piece_info as u8 - b'0' as u8;
                         } else if piece_info == '/' {
                             col = 0;
                             assert_ne!(row, 0, "Should not have more rows on the chessboard!");
@@ -125,7 +125,7 @@ impl PSBoard {
                                 Black
                             };
                             let kind = PieceKind::from_char(piece_info);
-                            raw.set_loc((row, col).into(), &Some(PieceState { kind, color }));
+                            raw.set_loc((row, col).try_into().unwrap(), &Some(PieceState { kind, color }));
                             col += 1;
                         }
                     }
@@ -156,10 +156,10 @@ impl PSBoard {
                     if first_char != '-' {
                         ep = Some(
                             (
-                                first_char as i8 - 'a' as i8,
-                                fen_chars.next().unwrap() as i8 - '1' as i8,
+                                first_char as u8 - 'a' as u8,
+                                fen_chars.next().unwrap() as u8 - '1' as u8,
                             )
-                                .into(),
+                                .try_into().unwrap(),
                         );
                     }
                 }
@@ -208,7 +208,7 @@ impl PSBoard {
         for row in (0..8).rev() {
             since_piece = 0;
             for col in 0..8 {
-                if let Some(ps) = self.raw[(row, col).into()] {
+                if let Some(ps) = self.raw[(row, col).try_into().unwrap()] {
                     if since_piece != 0 {
                         ret.push((since_piece + b'0') as char);
                     }
@@ -249,7 +249,7 @@ impl PSBoard {
             );
         }
         ret.push(' ');
-        if let Some(BoardPos(row, col)) = &self.ep {
+        if let Some(AbsoluteBoardPos(row, col)) = &self.ep {
             ret.push((*col as u8 + b'a') as char);
             ret.push((*row as u8 + b'1') as char);
         } else {
