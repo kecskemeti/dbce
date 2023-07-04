@@ -21,7 +21,7 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::board_rep::BoardPos;
+use crate::baserules::board_rep::{AbsoluteBoardPos};
 use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
@@ -65,7 +65,7 @@ impl RawBoard {
     /// assert_eq!(white_rook, empty_board[a1]);
     /// ```
     #[inline]
-    pub fn set_loc(&mut self, BoardPos(row, col): BoardPos, piece: &Option<PieceState>) {
+    pub fn set_loc(&mut self, AbsoluteBoardPos(row, col): AbsoluteBoardPos, piece: &Option<PieceState>) {
         let shift_amount = col << 2;
         let piece_mask = !(0b1111 << shift_amount);
         let us_row = row as usize;
@@ -149,7 +149,7 @@ impl Default for RawBoard {
             };
             for col in 0..8 {
                 raw.set_loc(
-                    (row, col).into(),
+                    (row, col).try_into().unwrap(),
                     &Some(PieceState {
                         kind: if only_pawn.is_some() {
                             Pawn
@@ -200,7 +200,7 @@ impl Display for RawBoard {
                 return_string.push_str(&format!(
                     "{}{}{}",
                     prefix,
-                    if let Some(ps) = &self[(row, col).into()] {
+                    if let Some(ps) = &self[(row, col).try_into().unwrap()] {
                         format!("{}", ps.to_unicode()).pop().unwrap()
                     } else {
                         '-'
@@ -215,7 +215,7 @@ impl Display for RawBoard {
     }
 }
 
-impl ops::Index<BoardPos> for RawBoard {
+impl ops::Index<AbsoluteBoardPos> for RawBoard {
     type Output = Option<PieceState>;
 
     /// Provides access into the raw board with simple board position coordinates in the index operator.
@@ -231,7 +231,7 @@ impl ops::Index<BoardPos> for RawBoard {
     /// assert_eq!(Some(PieceState::from_char('k')),black_king);
     /// ```
     #[inline]
-    fn index(&self, BoardPos(row, col): BoardPos) -> &Self::Output {
+    fn index(&self, AbsoluteBoardPos(row, col): AbsoluteBoardPos) -> &Self::Output {
         PieceState::masked_ps_conversion(col as usize, self.0[row as usize])
     }
 }

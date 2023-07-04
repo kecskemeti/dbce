@@ -80,7 +80,7 @@ impl ops::Add<RelativeBoardPos> for AbsoluteBoardPos {
 }
 
 impl AbsoluteBoardPos {
-    fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
+    pub fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
         let row = self.0 as i8 + rhs.0;
         let col = self.1 as i8 + rhs.1;
         (row.try_into()?, col.try_into()?).try_into()?

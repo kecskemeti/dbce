@@ -49,7 +49,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             //short
             internal_move = Some(PossibleMove {
                 the_move: BaseMove {
-                    from: (castle_row, 4).into(),
+                    from: (castle_row, 4).try_into(),
                     to: (castle_row, 6).into(),
                 },
                 pawn_promotion: None,

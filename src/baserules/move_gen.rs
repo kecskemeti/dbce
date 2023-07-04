@@ -140,12 +140,11 @@ impl KingMove for NotCastle {
     fn gen_king_moves(
         &self,
         board: &PSBoard,
-        AbsoluteBoardPos(row, col): AbsoluteBoardPos,
+        position: AbsoluteBoardPos,
         the_moves: &mut Vec<PossibleMove>,
     ) {
         board.gen_moves_from_dirs(
-            row,
-            col,
+            position,
             &PSBoard::piece_move_rule,
             King.vec_moves(),
             the_moves,
@@ -169,7 +168,7 @@ impl PSBoard {
 
     /// Pieces can move and take till they hit another piece, assuming it is not the same colour
     #[inline]
-    fn piece_move_rule(&self, pos: BoardPos) -> bool {
+    fn piece_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
         let target = self.get_loc(pos);
         if let Some(other_piece) = target.as_ref() {
             other_piece.color != self.who_moves
@@ -180,13 +179,13 @@ impl PSBoard {
 
     /// Pawns can only move to empty spaces, cannot take in forward movement
     #[inline]
-    fn pawn_move_rule(&self, pos: BoardPos) -> bool {
+    fn pawn_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
         self.get_loc(pos).is_none()
     }
 
     /// Pawns can take in diagonals, even with en passant
     #[inline]
-    fn pawn_take_rule(&self, pos: BoardPos) -> bool {
+    fn pawn_take_rule(&self, pos: AbsoluteBoardPos) -> bool {
         let target = self.get_loc(pos);
         if let Some(other_piece) = target.as_ref() {
             // regular move
@@ -207,24 +206,19 @@ impl PSBoard {
     #[inline]
     fn fil_map_core<I>(
         &self,
-        row: i8,
-        col: i8,
-        loc: BoardPos,
+        pos: AbsoluteBoardPos,
+        loc: AbsoluteBoardPos,
         on_board_rule: &I,
     ) -> Option<PossibleMove>
     where
-        I: Fn(&Self, BoardPos) -> bool,
+        I: Fn(&Self, AbsoluteBoardPos) -> bool,
     {
-        if loc.0 & 7i8 == loc.0 && loc.1 & 7i8 == loc.1 &&
-            // Move is on the board
-            on_board_rule(self, loc)
-        {
+        if
+        // Move is on the board
+        on_board_rule(self, loc) {
             // Move is allowed by the rule, we generate it
             Some(PossibleMove {
-                the_move: BaseMove {
-                    from: (row, col).into(),
-                    to: (loc.0, loc.1).into(),
-                },
+                the_move: BaseMove { from: pos, to: loc },
                 pawn_promotion: None,
                 rook: None,
             })
@@ -238,8 +232,7 @@ impl PSBoard {
     #[inline]
     fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>, J>(
         &self,
-        row: i8,
-        col: i8, // absolute
+        position: AbsoluteBoardPos,
         on_board_rule: &J,
         possible_moves: I,
         out: &mut Vec<PossibleMove>,
@@ -249,8 +242,8 @@ impl PSBoard {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| (m.0 + row, m.1 + col).into())
-                .filter_map(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
+                .filter_map(|m| position.fallible_add(*m).ok())
+                .filter_map(|new_loc| self.fil_map_core(position, new_loc, on_board_rule)),
         );
     }
     //falible add
@@ -260,31 +253,30 @@ impl PSBoard {
     #[inline]
     fn gen_moves_from_dirs_with_stop<'a, I, J>(
         &self,
-        row: i8,
-        col: i8,
+        position: AbsoluteBoardPos,
         on_board_rule: &J,
         possible_moves: I,
         out: &mut Vec<PossibleMove>,
     ) where
-        I: IntoIterator<Item = &'a BoardPos>,
-        J: Fn(&Self, BoardPos) -> bool,
+        I: IntoIterator<Item = &'a RelativeBoardPos>,
+        J: Fn(&Self, AbsoluteBoardPos) -> bool,
     {
         out.extend(
             possible_moves
                 .into_iter()
-                .map(|m| (m.0 + row, m.1 + col).into())
-                .map_while(|loc| self.fil_map_core(row, col, loc, on_board_rule)),
+                .map_while(|m| position.fallible_add(*m).ok())
+                .map_while(|new_loc| self.fil_map_core(position, new_loc, on_board_rule)),
         );
     }
 
     /// This generates moves based on directional vectors (useful for rooks, bishops and queens)
-    fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a BoardPos>>(
+    fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>>(
         &self,
-        row: i8,
-        col: i8,
+        position: AbsoluteBoardPos,
         vecs: I,
         out: &mut Vec<PossibleMove>,
     ) {
+        // transform vec rel board
         for BoardPos(x, y) in vecs {
             static DIRECTIONAL_MOVES: [[BoardPos; 7]; 9] = [
                 // this array is laid out so it is easy to map into it with the below formula using just the input coords
@@ -374,8 +366,7 @@ impl PSBoard {
             let a = DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
             let allow_next = RefCell::new(true);
             self.gen_moves_from_dirs_with_stop(
-                row,
-                col,
+                position,
                 &move |s, m| {
                     if *allow_next.borrow() {
                         // Ensures we can take a piece but not go further or we need to stop a step before our own pieces
@@ -417,8 +408,8 @@ impl PSBoard {
             .filter_map(|(idx, ps)| {
                 if let Some(curr) = ps {
                     if curr.color == self.who_moves {
-                        let ri = (idx >> 3) as i8;
-                        let ci = (idx & 0b111) as i8;
+                        let ri = (idx >> 3) as u8;
+                        let ci = (idx & 0b111) as u8;
                         return Some((
                             ri,
                             ci,
@@ -433,26 +424,25 @@ impl PSBoard {
                 }
                 None
             })
-            .for_each(|(ri, ci, call)| call(self, ri, ci, the_moves));
+            .for_each(|(ri, ci, call)| call(self, (ri, ci).try_into().unwrap(), the_moves));
     }
 
-    fn gen_king_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
-        self.king_move_gen.gen_king_moves(self, row, col, the_moves);
+    fn gen_king_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
+        self.king_move_gen.gen_king_moves(self, position, the_moves);
     }
 
     /// Pawn moves, takes and promotions
-    fn gen_pawn_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+    fn gen_pawn_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
         // normal pawn move
         let prelen = the_moves.len();
-        let pawn_move_now = if row == 1 || row == 6 {
+        let pawn_move_now = if position.0 == 1 || position.0 == 6 {
             // two step pawn move at the beginning
             self.who_moves.pawn_double_step()
         } else {
             self.who_moves.pawn_single_step()
         };
         self.gen_moves_from_dirs_with_stop(
-            row,
-            col,
+            position,
             &PSBoard::pawn_move_rule,
             pawn_move_now,
             the_moves,
@@ -460,8 +450,7 @@ impl PSBoard {
 
         // Pawn takes
         self.gen_moves_from_dirs(
-            row,
-            col,
+            position,
             &PSBoard::pawn_take_rule,
             self.who_moves.pawn_takes_step(),
             the_moves,
@@ -493,10 +482,9 @@ impl PSBoard {
     }
 
     /// The knight moves are not directional, so we handle them specifically
-    fn gen_knight_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+    fn gen_knight_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
         self.gen_moves_from_dirs(
-            row,
-            col,
+            position,
             &PSBoard::piece_move_rule,
             Knight.vec_moves(),
             the_moves,
@@ -504,11 +492,10 @@ impl PSBoard {
     }
 
     /// All other pieces have simple directional movement, so we just use their directions to generate their possible moves
-    fn gen_vec_moves(&self, row: i8, col: i8, the_moves: &mut Vec<PossibleMove>) {
+    fn gen_vec_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
         self.gen_moves_from_vecs(
-            row,
-            col,
-            self.get_loc((row, col).into()).unwrap().kind.vec_moves(),
+            position,
+            self.get_loc(position).unwrap().kind.vec_moves(),
             the_moves,
         );
     }
