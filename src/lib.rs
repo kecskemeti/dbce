@@ -42,7 +42,7 @@ impl Default for MemLimits {
     fn default() -> Self {
         let sys = System::new_with_specifics(RefreshKind::new().with_memory());
         let available = sys.available_memory();
-        MemLimits {
+        Self {
             max_board_count: (available as usize / size_of::<PSBoard>() / 4).min(u32::MAX as usize)
                 as u32,
             max_memory_bytes: available,

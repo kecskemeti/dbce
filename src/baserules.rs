@@ -22,8 +22,10 @@
  */
 pub mod board;
 pub mod board_rep;
+pub mod castling;
 pub mod move_gen;
 pub mod piece_color;
 pub mod piece_kind;
 pub mod piece_state;
+pub mod positions;
 pub mod rawboard;

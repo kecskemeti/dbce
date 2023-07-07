@@ -26,7 +26,7 @@ impl EngineThread {
             board.find_continuation_mut(amove).unwrap()
         } else {
             counter.inc();
-            let (psb, dur) = EngineThread::timed_move(board, amove);
+            let (psb, dur) = Self::timed_move(board, amove);
             self.0.add(dur);
             board.insert_psboard(amove, psb);
             board.find_continuation_mut(amove).unwrap()
@@ -36,6 +36,6 @@ impl EngineThread {
 
 impl From<&Engine> for EngineThread {
     fn from(engine: &Engine) -> Self {
-        EngineThread(engine.scoring_timings.lock().unwrap().clone())
+        Self(engine.scoring_timings.lock().unwrap().clone())
     }
 }

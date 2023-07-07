@@ -32,35 +32,14 @@ use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{King, Pawn, Rook};
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
+use std::ops::Deref;
 
-use enumset::{enum_set, EnumSet, EnumSetType};
+use crate::baserules::castling::Castling;
+use crate::baserules::positions::AbsoluteBoardPos;
+use crate::util::TryWithPanic;
+use enumset::EnumSet;
 
-use super::board_rep::AbsoluteBoardPos;
 use super::move_gen::{KingMove, CASTLE_ALLOWED, CASTLE_FORBIDDEN};
-
-#[derive(EnumSetType, Debug)]
-pub enum Castling {
-    WhiteKingSide,
-    WhiteQueenSide,
-    BlackKingSide,
-    BlackQueenSide,
-}
-
-pub const fn white_can_castle() -> EnumSet<Castling> {
-    enum_set!(WhiteKingSide | WhiteQueenSide)
-}
-
-pub const fn black_can_castle() -> EnumSet<Castling> {
-    enum_set!(BlackKingSide | BlackQueenSide)
-}
-
-pub const fn queenside_castle() -> EnumSet<Castling> {
-    enum_set!(BlackQueenSide | WhiteQueenSide)
-}
-
-pub const fn kingside_castle() -> EnumSet<Castling> {
-    enum_set!(WhiteKingSide | BlackKingSide)
-}
 
 /// The internal representation of the chessboard after a given move.
 pub struct PSBoard {
@@ -80,6 +59,14 @@ pub struct PSBoard {
     pub half_moves_since_pawn: u16,
     /// The estimated score of this board, without considering its possible continuations
     pub score: f32,
+}
+
+impl Deref for PSBoard {
+    type Target = RawBoard;
+
+    fn deref(&self) -> &Self::Target {
+        &self.raw
+    }
 }
 
 impl Default for PSBoard {
@@ -177,8 +164,7 @@ impl PSBoard {
                         (the_move.the_move.from.0 + the_move.the_move.to.0) >> 1,
                         the_move.the_move.to.1,
                     )
-                        .try_into()
-                        .unwrap(),
+                        .transform(),
                 )
             } else {
                 None
@@ -208,26 +194,14 @@ impl PSBoard {
             let mut changed = false;
             if current_piece.kind == King {
                 changed = true;
-                new_castling ^= if current_piece.color == White {
-                    WhiteKingSide | WhiteQueenSide
-                } else {
-                    BlackQueenSide | BlackKingSide
-                };
+                new_castling ^= current_piece.color.all_castling();
             } else if current_piece.kind == Rook {
                 if the_move.the_move.from.1 == 7 {
                     changed = true;
-                    new_castling ^= if current_piece.color == White {
-                        WhiteKingSide
-                    } else {
-                        BlackKingSide
-                    };
+                    new_castling ^= current_piece.color.king_side_castling();
                 } else if the_move.the_move.from.1 == 0 {
                     changed = true;
-                    new_castling ^= if current_piece.color == White {
-                        WhiteQueenSide
-                    } else {
-                        BlackQueenSide
-                    };
+                    new_castling ^= current_piece.color.queen_side_castling();
                 }
             }
             if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
@@ -237,18 +211,10 @@ impl PSBoard {
                     if taken.kind == Rook {
                         if the_move.the_move.to.1 == 0 {
                             changed = true;
-                            new_castling ^= if current_piece.color == White {
-                                BlackQueenSide
-                            } else {
-                                WhiteQueenSide
-                            };
+                            new_castling ^= current_piece.color.invert().queen_side_castling();
                         } else {
                             changed = true;
-                            new_castling ^= if current_piece.color == White {
-                                BlackKingSide
-                            } else {
-                                WhiteKingSide
-                            };
+                            new_castling ^= current_piece.color.invert().king_side_castling();
                         }
                     }
                 }
@@ -269,13 +235,15 @@ impl PSBoard {
     /// # Example use:
     /// ```
     /// use dbce::baserules::board::PSBoard;
-    /// use dbce::baserules::board_rep::BoardPos;
     /// use dbce::baserules::piece_color::PieceColor::White;
     /// use dbce::baserules::piece_kind::PieceKind::King;
     /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::positions::AbsoluteBoardPos;
+    /// use dbce::util::TryWithPanic;
     ///
     /// let board = PSBoard::default();
-    /// let king = board.get_loc("e1".try_into().unwrap());
+    /// let king_pos:AbsoluteBoardPos = "e1".transform();
+    /// let king = board.get_loc(king_pos);
     /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
     /// ```
     #[inline]
@@ -289,8 +257,9 @@ mod test {
     use crate::baserules::board::Castling::{
         BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
     };
-    use crate::baserules::board::{black_can_castle, queenside_castle, PSBoard};
+    use crate::baserules::board::PSBoard;
     use crate::baserules::board_rep::{BaseMove, PossibleMove};
+    use crate::baserules::castling::{black_can_castle, queenside_castle};
     use crate::baserules::piece_color::PieceColor::White;
     use crate::baserules::piece_kind::PieceKind::{King, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
@@ -382,14 +351,14 @@ mod test {
                 kind: King,
                 color: White
             },
-            after_move.get_loc("g1".try_into().unwrap()).unwrap()
+            after_move["g1"].unwrap()
         );
         assert_eq!(
             PieceState {
                 kind: Rook,
                 color: White
             },
-            after_move.get_loc("f1".try_into().unwrap()).unwrap()
+            after_move["f1"].unwrap()
         );
     }
 }

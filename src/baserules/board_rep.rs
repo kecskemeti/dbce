@@ -22,110 +22,9 @@
  */
 
 use crate::baserules::piece_kind::PieceKind;
-use crate::util::{AnyError, IntResult};
-use std::cmp::Ordering;
+use crate::baserules::positions::AbsoluteBoardPos;
+use crate::util::{AnyError, IntResult, TryWithPanic};
 use std::fmt::{Debug, Display, Formatter};
-use std::ops;
-use std::str::FromStr;
-
-/// Used to represent the board position
-/// For example: square a1 = (0,0), square h8 (7,7)
-/// Also used to represent relative locations on the board (hence the signedness)
-#[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
-pub struct RelativeBoardPos(pub i8, pub i8);
-
-impl TryFrom<(i8, i8)> for RelativeBoardPos {
-    type Error = AnyError;
-    /// Allows loading absolute board coordinates to a BoardPos struct
-    fn try_from((row, col): (i8, i8)) -> Result<Self, Self::Error> {
-        if (-8..8).contains(&row) && (-8..8).contains(&col) {
-            Ok(RelativeBoardPos(row, col))
-        } else {
-            Err(format!("Row and column index out of range for {row},{col}").into())
-        }
-    }
-}
-
-#[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
-pub struct AbsoluteBoardPos(pub u8, pub u8);
-
-impl TryFrom<&str> for AbsoluteBoardPos {
-    type Error = AnyError;
-    /// Allows loading absolute board coordinates to a BoardPos struct
-    fn try_from(coord: &str) -> Result<Self, Self::Error> {
-        let row = u8::from_str(&coord[1..2])? - 1;
-        let col: u8 = (coord.as_bytes()[0] - b'a').try_into()?;
-        (row, col).try_into()
-    }
-}
-
-impl TryFrom<(u8, u8)> for AbsoluteBoardPos {
-    type Error = AnyError;
-    /// Allows loading absolute board coordinates to a BoardPos struct
-    fn try_from((row, col): (u8, u8)) -> Result<Self, Self::Error> {
-        if (0..8).contains(&row) && (0..8).contains(&col) {
-            Ok(AbsoluteBoardPos(row, col))
-        } else {
-            Err(format!("Row and column index out of range for {row},{col}").into())
-        }
-    }
-}
-
-impl ops::Add<RelativeBoardPos> for AbsoluteBoardPos {
-    type Output = AbsoluteBoardPos;
-
-    fn add(self, rhs: RelativeBoardPos) -> Self::Output {
-        self.fallible_add(rhs).unwrap()
-    }
-}
-
-impl AbsoluteBoardPos {
-    pub fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
-        let row = (self.0 as i8 + rhs.0) as u8;
-        let col = (self.1 as i8 + rhs.1) as u8;
-        (row.try_into()?, col.try_into()?).try_into()
-    }
-}
-
-impl ops::AddAssign<RelativeBoardPos> for AbsoluteBoardPos {
-    fn add_assign(&mut self, rhs: RelativeBoardPos) {
-        self.0 = (self.0 as i8 + rhs.0) as u8;
-        self.1 = (self.1 as i8 + rhs.1) as u8;
-    }
-}
-
-/*
-pub trait TryWithPanic<T: Debug> {
-    fn transform(self) -> T;
-}
-
-impl<AbsoluteBoardPos: std::convert::TryFrom<(u8, u8)> + std::fmt::Debug>
-    TryWithPanic<AbsoluteBoardPos> for (u8, u8)
-{
-    fn transform(self) -> AbsoluteBoardPos {
-        self.try_into().unwrap()
-    }
-}
-
-impl<RelativeBoardPos: std::convert::TryFrom<(i8, i8)> + std::fmt::Debug>
-    TryWithPanic<RelativeBoardPos> for (i8, i8)
-{
-    fn transform(self) -> RelativeBoardPos
-    where
-        <RelativeBoardPos as TryFrom<(i8, i8)>>::Error: Debug,
-    {
-        self.try_into().unwrap()
-    }
-}*/
-
-impl RelativeBoardPos {
-    pub fn transform_vec(in_vec: Vec<(i8, i8)>) -> Vec<RelativeBoardPos> {
-        in_vec
-            .into_iter()
-            .map(|tuple| tuple.try_into().unwrap())
-            .collect()
-    }
-}
 
 /// Simple move representation
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug)]
@@ -137,32 +36,37 @@ pub struct BaseMove {
 }
 
 impl BaseMove {
-    /// Allows easy comparison of moves by compacting the move into a single 32 bit integer
-    fn to_u32(self) -> u32 {
-        (self.from.0 as u32) << 24
-            | (self.from.1 as u32) << 16
-            | (self.to.0 as u32) << 8
-            | self.to.1 as u32
-    }
-
     pub fn from_two_pos(from: AbsoluteBoardPos, to: AbsoluteBoardPos) -> Self {
         BaseMove { from, to }
+    }
+
+    pub fn move_in_row(row: u8, from_col: u8, to_col: u8) -> Self {
+        BaseMove::from_two_pos((row, from_col).transform(), (row, to_col).transform())
     }
 
     /// Creates a base move from an uci string representation
     ///
     /// # Example
     /// ```
-    /// use dbce::baserules::board_rep::{BaseMove, BoardPos};
+    /// use dbce::baserules::board_rep::BaseMove;
+    /// use dbce::util::TryWithPanic;
     /// let rook_a3 = BaseMove {
-    ///     from: "a1".try_into().unwrap(),
-    ///     to: "a3".try_into().unwrap()
+    ///     from: "a1".transform(),
+    ///     to: "a3".transform()
     /// };
     /// let potential_parsed_rook_move = BaseMove::from_uci("a1a3");
     /// assert!(potential_parsed_rook_move.is_ok());
     /// assert_eq!(rook_a3, potential_parsed_rook_move.unwrap());
     /// ```
     pub fn from_uci(uci: &str) -> IntResult<Self> {
+        uci.try_into()
+    }
+}
+
+impl TryFrom<&str> for BaseMove {
+    type Error = AnyError;
+
+    fn try_from(uci: &str) -> IntResult<Self> {
         Ok(Self {
             from: uci[0..2].try_into()?,
             to: uci[2..4].try_into()?,
@@ -170,7 +74,22 @@ impl BaseMove {
     }
 }
 
-#[derive(Copy, Clone, Eq, Hash, PartialEq)]
+impl Default for BaseMove {
+    fn default() -> Self {
+        BaseMove {
+            from: AbsoluteBoardPos::default(),
+            to: (0, 1).transform(),
+        }
+    }
+}
+
+impl Display for BaseMove {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.from, self.to)
+    }
+}
+
+#[derive(Copy, Clone, Eq, Hash, PartialEq, Default, Debug)]
 pub struct PossibleMove {
     /// The move to do
     pub the_move: BaseMove,
@@ -178,18 +97,6 @@ pub struct PossibleMove {
     pub pawn_promotion: Option<PieceKind>,
     /// If we have castling, then the rook also has to move alongside the king, the `BaseMove` is representing the king, here we represent the rook move
     pub rook: Option<BaseMove>,
-}
-
-impl PartialOrd<Self> for PossibleMove {
-    fn partial_cmp(&self, _: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-
-impl Ord for PossibleMove {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.the_move.to_u32().cmp(&other.the_move.to_u32())
-    }
 }
 
 impl PossibleMove {
@@ -223,57 +130,38 @@ impl PossibleMove {
     }
 }
 
-impl Default for PossibleMove {
-    fn default() -> Self {
-        Self {
-            the_move: BaseMove {
-                from: AbsoluteBoardPos(0, 0),
-                to: AbsoluteBoardPos(1, 0),
-            },
-            pawn_promotion: None,
-            rook: None,
-        }
-    }
-}
-
 impl Display for PossibleMove {
     /// Produces moves in uci notation
     /// See also: <https://en.wikipedia.org/wiki/Universal_Chess_Interface>
     /// ```
-    /// use dbce::baserules::board_rep::{BaseMove, BoardPos, PossibleMove};
+    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// use dbce::util::TryWithPanic;
     /// let rook_lift = PossibleMove {
-    ///     the_move: BaseMove { from: "a1".try_into().unwrap(), to: "a3".try_into().unwrap()},
+    ///     the_move: BaseMove { from: "a1".transform(), to: "a3".transform()},
     ///     pawn_promotion: None,
     ///     rook: None,
     /// };
     /// assert_eq!("a1a3",format!("{rook_lift}"));
     /// ```
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ret = String::with_capacity(5);
-        ret.push((self.the_move.from.1 as u8 + b'a') as char);
-        ret.push((self.the_move.from.0 as u8 + b'1') as char);
-        ret.push((self.the_move.to.1 as u8 + b'a') as char);
-        ret.push((self.the_move.to.0 as u8 + b'1') as char);
-        if let Some(pp) = &self.pawn_promotion {
-            ret.push(pp.to_char());
-        }
-        write!(f, "{ret}",)
-    }
-}
-
-impl Debug for PossibleMove {
-    /// Mirrors `PossibleMove`'s display trait
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
+        write!(
+            f,
+            "{}{}",
+            self.the_move,
+            self.pawn_promotion
+                .map(|pp| format!("{}", pp.to_char()))
+                .unwrap_or("".into())
+        )
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::baserules::board_rep::{AbsoluteBoardPos, BaseMove, PossibleMove};
+    use crate::baserules::board_rep::{BaseMove, PossibleMove};
     use crate::baserules::piece_color::PieceColor::{Black, White};
     use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
+    use crate::baserules::positions::AbsoluteBoardPos;
 
     #[test]
     fn pstest() {
@@ -324,16 +212,11 @@ mod test {
             pawn_promotion: Some(Queen),
             rook: None,
         };
+
         let black_short_castles = PossibleMove {
-            the_move: BaseMove {
-                from: AbsoluteBoardPos(7, 3),
-                to: AbsoluteBoardPos(7, 1),
-            },
+            the_move: BaseMove::move_in_row(7, 3, 1),
             pawn_promotion: None,
-            rook: Some(BaseMove {
-                from: AbsoluteBoardPos(7, 0),
-                to: AbsoluteBoardPos(7, 2),
-            }),
+            rook: Some(BaseMove::move_in_row(7, 0, 2)),
         };
         let knight_moves = PossibleMove {
             the_move: BaseMove {

@@ -21,7 +21,7 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 use crate::baserules::board_rep::{BaseMove, PossibleMove};
-use crate::baserules::piece_color::PieceColor::White;
+use crate::baserules::castling::Castling;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
 use crate::engine::continuation::BoardContinuation;
@@ -43,35 +43,9 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
         _ => panic!("Unexpected chess notation"),
     }
     if castling {
-        let castle_type = the_move.split('-').count();
-        let castle_row = if board.who_moves == White { 0 } else { 7 };
-        if castle_type == 2 {
-            //short
-            internal_move = Some(PossibleMove {
-                the_move: BaseMove {
-                    from: (castle_row, 4).try_into().unwrap(),
-                    to: (castle_row, 6).try_into().unwrap(),
-                },
-                pawn_promotion: None,
-                rook: Some(BaseMove {
-                    from: (castle_row, 7).try_into().unwrap(),
-                    to: (castle_row, 5).try_into().unwrap(),
-                }),
-            });
-        } else {
-            //long
-            internal_move = Some(PossibleMove {
-                the_move: BaseMove {
-                    from: (castle_row, 4).try_into().unwrap(),
-                    to: (castle_row, 2).try_into().unwrap(),
-                },
-                pawn_promotion: None,
-                rook: Some(BaseMove {
-                    from: (castle_row, 0).try_into().unwrap(),
-                    to: (castle_row, 3).try_into().unwrap(),
-                }),
-            });
-        }
+        let castling_done = Castling::from_notation(the_move, board.who_moves).unwrap();
+        let castling_move: &'static PossibleMove = castling_done.into();
+        internal_move = Some(*castling_move);
     } else {
         let mut row = Vec::new();
         let mut promotion = false;
@@ -220,12 +194,11 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
         }
     } else {
         let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
-        let rook_from = (the_move.from.0, if the_move.to.1 == 6 { 7 } else { 0 })
-            .try_into()
-            .unwrap();
-        let rook_to = (the_move.from.0, if the_move.to.1 == 6 { 5 } else { 3 })
-            .try_into()
-            .unwrap();
+        let rook_move = BaseMove::move_in_row(
+            the_move.from.0,
+            if the_move.to.1 == 6 { 7 } else { 0 },
+            if the_move.to.1 == 6 { 5 } else { 3 },
+        );
         PossibleMove {
             the_move,
             pawn_promotion: None,
@@ -235,10 +208,7 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
                 && (the_move.to.1 == 6 || the_move.to.1 == 2)
                 && moving_piece.kind == King
             {
-                Some(BaseMove {
-                    from: rook_from,
-                    to: rook_to,
-                })
+                Some(rook_move)
             } else {
                 None
             },

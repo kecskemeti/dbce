@@ -74,6 +74,10 @@ fn main() {
             println!("Sorry, I can't understand {line}");
         }
         println!("Current board: {}", gamestate.psboard());
-        make_machine_move(&engine, &mut gamestate);
+        if !is_mate(gamestate.psboard().score) {
+            make_machine_move(&engine, &mut gamestate);
+        } else {
+            break;
+        }
     }
 }

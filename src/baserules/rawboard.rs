@@ -21,10 +21,12 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
-use crate::baserules::board_rep::{AbsoluteBoardPos};
 use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
+use crate::baserules::positions::AbsoluteBoardPos;
+use crate::util::TryWithPanic;
+use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter};
 use std::ops;
 
@@ -55,22 +57,26 @@ impl RawBoard {
     ///
     /// # Example use:
     /// ```
-    /// use dbce::baserules::board_rep::BoardPos;
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let mut empty_board = RawBoard::empty();
     /// let white_rook = Some(PieceState::from_char('R'));
-    /// let a1:BoardPos = "a1".try_into().unwrap();
+    /// let a1 = "a1".transform();
     /// empty_board.set_loc(a1, &white_rook);
     /// assert_eq!(white_rook, empty_board[a1]);
     /// ```
     #[inline]
-    pub fn set_loc(&mut self, AbsoluteBoardPos(row, col): AbsoluteBoardPos, piece: &Option<PieceState>) {
+    pub fn set_loc(
+        &mut self,
+        AbsoluteBoardPos(row, col): AbsoluteBoardPos,
+        piece: &Option<PieceState>,
+    ) {
         let shift_amount = col << 2;
         let piece_mask = !(0b1111 << shift_amount);
         let us_row = row as usize;
         let a_row = self.0[us_row] & piece_mask;
-        let a_bit_piece = (PieceState::bits(piece) as u32) << shift_amount;
+        let a_bit_piece = PieceState::bits_u32(piece) << shift_amount;
         self.0[us_row] = a_row | a_bit_piece;
     }
 
@@ -125,19 +131,8 @@ impl RawBoard {
     }
 }
 
-impl Default for RawBoard {
-    /// Gets the starting position into the raw board.
-    ///
-    /// #Example use:
-    /// ```
-    /// use dbce::baserules::board_rep::BoardPos;
-    /// use dbce::baserules::piece_state::PieceState;
-    /// use dbce::baserules::rawboard::RawBoard;
-    /// let starting_position = RawBoard::default();
-    /// assert_eq!(Some(PieceState::from_char('R')), starting_position[(0,0).into()]);
-    /// assert_eq!(None, starting_position[(3,0).into()]);
-    /// ```
-    fn default() -> Self {
+lazy_static! {
+    static ref STARTING_POSITION_BOARD: RawBoard = {
         let mut raw = RawBoard::empty();
         for row in 0..8 {
             let (c, only_pawn) = match row {
@@ -149,7 +144,7 @@ impl Default for RawBoard {
             };
             for col in 0..8 {
                 raw.set_loc(
-                    (row, col).try_into().unwrap(),
+                    (row, col).transform(),
                     &Some(PieceState {
                         kind: if only_pawn.is_some() {
                             Pawn
@@ -169,6 +164,22 @@ impl Default for RawBoard {
             }
         }
         raw
+    };
+}
+
+impl Default for RawBoard {
+    /// Gets the starting position into the raw board.
+    ///
+    /// #Example use:
+    /// ```
+    /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::rawboard::RawBoard;
+    /// let starting_position = RawBoard::default();
+    /// assert_eq!(Some(PieceState::from_char('R')), starting_position[(0,0)]);
+    /// assert_eq!(None, starting_position[(3,0)]);
+    /// ```
+    fn default() -> Self {
+        *STARTING_POSITION_BOARD
     }
 }
 
@@ -187,7 +198,7 @@ impl Display for RawBoard {
         static COL: &str = "  abcdefgh\n";
         let mut return_string = String::new();
         return_string.push_str(COL);
-        for row in (0..8).rev() {
+        for row in (0..8u8).rev() {
             for col in 0..8 {
                 let row_as_str = (row + 1).to_string();
                 let (prefix, suffix) = if col == 0 {
@@ -200,11 +211,8 @@ impl Display for RawBoard {
                 return_string.push_str(&format!(
                     "{}{}{}",
                     prefix,
-                    if let Some(ps) = &self[(row, col).try_into().unwrap()] {
-                        format!("{}", ps.to_unicode()).pop().unwrap()
-                    } else {
-                        '-'
-                    },
+                    &self[(row, col)]
+                        .map_or('-', |ps| format!("{}", ps.to_unicode()).pop().unwrap()),
                     suffix
                 ));
             }
@@ -223,16 +231,58 @@ impl ops::Index<AbsoluteBoardPos> for RawBoard {
     /// # Example use
     /// ```
     /// use std::str::FromStr;
-    /// use dbce::baserules::board_rep::BoardPos;
     /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::positions::AbsoluteBoardPos;
     /// use dbce::baserules::rawboard::RawBoard;
     /// let starting_position = RawBoard::default();
-    /// let black_king = starting_position["e8".try_into().unwrap()];
-    /// assert_eq!(Some(PieceState::from_char('k')),black_king);
+    /// let black_king = starting_position[AbsoluteBoardPos(0,4)];
+    /// assert_eq!(Some(PieceState::from_char('K')),black_king);
     /// ```
     #[inline]
     fn index(&self, AbsoluteBoardPos(row, col): AbsoluteBoardPos) -> &Self::Output {
         PieceState::masked_ps_conversion(col as usize, self.0[row as usize])
+    }
+}
+
+impl ops::Index<&str> for RawBoard {
+    type Output = Option<PieceState>;
+
+    /// Provides access into the raw board with simple uci position coordinates in the index operator.
+    ///
+    /// # Example use
+    /// ```
+    /// use std::str::FromStr;
+    /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::rawboard::RawBoard;
+    /// let starting_position = RawBoard::default();
+    /// let black_king = starting_position["e8"];
+    /// assert_eq!(Some(PieceState::from_char('k')),black_king);
+    /// ```
+    #[inline]
+    fn index(&self, uci: &str) -> &Self::Output {
+        let abs_pos: AbsoluteBoardPos = uci.transform();
+        &self[abs_pos]
+    }
+}
+
+impl ops::Index<(u8, u8)> for RawBoard {
+    type Output = Option<PieceState>;
+
+    /// Provides access into the raw board with simple uci position coordinates in the index operator.
+    ///
+    /// # Example use
+    /// ```
+    /// use std::str::FromStr;
+    /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::rawboard::RawBoard;
+    /// let starting_position = RawBoard::default();
+    /// let black_king = starting_position[(0,0)];
+    /// assert_eq!(Some(PieceState::from_char('R')),black_king);
+    /// ```
+    #[inline]
+    fn index(&self, raw_pos: (u8, u8)) -> &Self::Output {
+        let abs_pos: AbsoluteBoardPos = raw_pos.transform();
+        &self[abs_pos]
     }
 }
 
@@ -297,14 +347,8 @@ mod test {
     fn iterator_test() {
         let psboard = PSBoard::default();
         let mut iter = psboard.raw.into_iter();
-        assert_eq!(
-            psboard.get_loc("a1".try_into().unwrap()),
-            iter.next().unwrap()
-        );
+        assert_eq!(&psboard["a1"], iter.next().unwrap());
         let mut iter = psboard.raw.into_iter();
-        assert_eq!(
-            psboard.get_loc("d8".try_into().unwrap()),
-            iter.nth(8 * 7 + 3).unwrap()
-        );
+        assert_eq!(&psboard["d8"], iter.nth(8 * 7 + 3).unwrap());
     }
 }

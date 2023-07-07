@@ -20,7 +20,7 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board_rep::RelativeBoardPos;
+use crate::baserules::positions::RelativeBoardPos;
 use enum_iterator::{all, Sequence};
 use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
@@ -63,9 +63,9 @@ lazy_static! {
     /// For kings and knights it is all possible relative moves compared to their current square
     /// For bishops, rooks and queens it is listing directional vectors that point towards the pieces possible future positions achievable in a single step
     static ref PIECE_MOVES: EnumMap<PieceKind, Vec<RelativeBoardPos>> = enum_map! {
-        Bishop => RelativeBoardPos::transform_vec(vec![(-1, -1), (1, 1), (-1, 1), (1, -1)]),
-        Rook => RelativeBoardPos::transform_vec(vec![(-1, 0), (1, 0), (0, 1), (0, -1)]),
-        Knight => RelativeBoardPos::transform_vec(vec![
+        Bishop => RelativeBoardPos::transform_more([(-1, -1), (1, 1), (-1, 1), (1, -1)]),
+        Rook => RelativeBoardPos::transform_more([(-1, 0), (1, 0), (0, 1), (0, -1)]),
+        Knight => RelativeBoardPos::transform_more([
            (-1, -2),
             (-1, 2),
             (-2, -1),
@@ -75,7 +75,7 @@ lazy_static! {
             (2, -1),
             (2, 1),
         ]),
-        King | Queen => RelativeBoardPos::transform_vec(vec![
+        King | Queen => RelativeBoardPos::transform_more([
         (-1, -1),
         (1, 1),
         (-1, 1),

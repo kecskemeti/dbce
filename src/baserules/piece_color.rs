@@ -20,9 +20,17 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board_rep::RelativeBoardPos;
+use crate::baserules::castling::Castling::{
+    BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
+};
+use crate::baserules::castling::{black_can_castle, white_can_castle, Castling};
+use crate::baserules::positions::{AbsoluteBoardPos, RelativeBoardPos};
+use crate::util::{AnyError, IntResult};
 use enum_map::{enum_map, Enum, EnumMap};
+use enumset::EnumSet;
 use lazy_static::lazy_static;
+use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use PieceColor::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Enum, Hash)]
@@ -34,28 +42,18 @@ pub enum PieceColor {
 lazy_static! {
     /// Colour dependent directional pawn moves for pawns that have already taken their first move
     static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_vec(vec![(-1, 0)]),
-        White => RelativeBoardPos::transform_vec(vec![(1, 0)])
+        Black => RelativeBoardPos::transform_more([(-1, 0)]),
+        White => RelativeBoardPos::transform_more([(1, 0)])
     };
     /// Colour dependent directional pawn moves for pawns that have not moved yet
     static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_vec(vec![(-1, 0), (-2, 0)]),
-        White => RelativeBoardPos::transform_vec(vec![(1, 0), (2, 0)])
+        Black => RelativeBoardPos::transform_more([(-1, 0), (-2, 0)]),
+        White => RelativeBoardPos::transform_more([(1, 0), (2, 0)])
     };
     /// Colour dependent directional pawn moves for pawns that can take opponent pieces
     static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_vec(vec![(-1, 1), (-1, -1)]),
-        White => RelativeBoardPos::transform_vec(vec![(1, 1), (1, -1)])
-    };
-    /// Colour dependent row number to identify promotion squares
-    static ref PAWN_PROMOTION_MAP: EnumMap<PieceColor, u8> = enum_map! {
-        Black => 0,
-        White => 7
-    };
-    /// Colour dependent row number where the starting board has the pieces
-    static ref PIECE_ROWS: EnumMap<PieceColor, u8> = enum_map! {
-        Black => 7,
-        White => 0
+        Black => RelativeBoardPos::transform_more([(-1, 1), (-1, -1)]),
+        White => RelativeBoardPos::transform_more([(1, 1), (1, -1)])
     };
 }
 
@@ -77,13 +75,26 @@ impl PieceColor {
     }
     /// Determine pawn promotion row for a colour
     #[inline]
-    pub fn pawn_promotion_row(self) -> u8 {
-        PAWN_PROMOTION_MAP[self]
+    pub const fn pawn_promotion_row(self) -> u8 {
+        match self {
+            Black => 0,
+            White => 7,
+        }
     }
     /// Determine piece starting row for a colour
     #[inline]
-    pub fn piece_row(self) -> u8 {
-        PIECE_ROWS[self]
+    pub const fn piece_row(self) -> u8 {
+        match self {
+            Black => 7,
+            White => 0,
+        }
+    }
+    #[inline]
+    pub const fn pawn_starting_row(self) -> u8 {
+        match self {
+            Black => 6,
+            White => 1,
+        }
     }
     #[inline]
     pub fn from_u8(colour: u8) -> Self {
@@ -100,5 +111,92 @@ impl PieceColor {
                 White => 8,
                 Black => 0,
             }
+    }
+    #[inline]
+    pub const fn all_castling(&self) -> EnumSet<Castling> {
+        match self {
+            Black => black_can_castle(),
+            White => white_can_castle(),
+        }
+    }
+    #[inline]
+    pub const fn king_side_castling(&self) -> Castling {
+        match self {
+            Black => BlackKingSide,
+            White => WhiteKingSide,
+        }
+    }
+    #[inline]
+    pub const fn queen_side_castling(&self) -> Castling {
+        match self {
+            Black => BlackQueenSide,
+            White => WhiteQueenSide,
+        }
+    }
+    #[inline]
+    pub const fn invert(&self) -> Self {
+        match self {
+            White => Black,
+            Black => White,
+        }
+    }
+    #[inline]
+    pub const fn starting_king_pos(&self) -> AbsoluteBoardPos {
+        AbsoluteBoardPos(self.piece_row(), 4)
+    }
+    #[inline]
+    pub const fn fen_color(&self) -> char {
+        match self {
+            White => 'w',
+            Black => 'b',
+        }
+    }
+    #[inline]
+    pub const fn mate_multiplier(&self) -> f32 {
+        match self {
+            White => 1.0,
+            Black => -1.0,
+        }
+    }
+
+    #[inline]
+    pub const fn score_comparator(&self) -> impl FnMut(&f32, &f32) -> Ordering {
+        match self {
+            White => |a: &f32, b: &f32| a.partial_cmp(b).unwrap(),
+            Black => |a: &f32, b: &f32| b.partial_cmp(a).unwrap(),
+        }
+    }
+
+    #[inline]
+    pub fn is_better_score(&self, good: f32, candidate: f32) -> bool {
+        match self {
+            White => good < candidate,
+            Black => good > candidate,
+        }
+    }
+
+    pub const fn worst_score(&self) -> f32 {
+        match self {
+            White => f32::NEG_INFINITY,
+            Black => f32::INFINITY,
+        }
+    }
+}
+
+impl Display for PieceColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.fen_color())
+    }
+}
+
+impl TryFrom<char> for PieceColor {
+    type Error = AnyError;
+
+    fn try_from(value: char) -> IntResult<Self> {
+        match value {
+            'w' => Ok(White),
+            'b' => Ok(Black),
+            _ => Err("Invalid piece color char".into()),
+        }
     }
 }

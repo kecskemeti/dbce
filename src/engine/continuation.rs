@@ -12,7 +12,7 @@ pub struct BoardContinuation {
     /// The overall expected score of this board after considering the continuations
     pub adjusted_score: f32,
     /// If we have calculated a few positions ahead from this board, we store these positions here
-    continuation: Arena<(PossibleMove, BoardContinuation)>,
+    continuation: Arena<(PossibleMove, Self)>,
 }
 
 impl Default for BoardContinuation {
@@ -28,7 +28,7 @@ impl Default for BoardContinuation {
     /// assert_eq!(0, starting_position.total_continuation_boards());
     /// ```
     fn default() -> Self {
-        BoardContinuation::new(PSBoard::default())
+        Self::new(PSBoard::default())
     }
 }
 
@@ -42,8 +42,8 @@ impl Deref for BoardContinuation {
 }
 
 impl BoardContinuation {
-    pub fn new(board: PSBoard) -> BoardContinuation {
-        BoardContinuation {
+    pub fn new(board: PSBoard) -> Self {
+        Self {
             board: Arc::new(board),
             adjusted_score: f32::NAN,
             continuation: Arena::new(),
@@ -51,11 +51,11 @@ impl BoardContinuation {
     }
 
     #[inline]
-    pub fn make_cached_move(mut self, the_move: &PossibleMove) -> BoardContinuation {
+    pub fn make_cached_move(mut self, the_move: &PossibleMove) -> Self {
         if let Some(cont) = self.find_continuation_remove(the_move) {
             cont
         } else {
-            BoardContinuation::new(self.make_move_noncached(the_move))
+            Self::new(self.make_move_noncached(the_move))
         }
     }
 
@@ -64,14 +64,10 @@ impl BoardContinuation {
     }
 
     pub fn insert_psboard(&mut self, the_move: &PossibleMove, board: PSBoard) {
-        self.continuation
-            .insert((*the_move, BoardContinuation::new(board)));
+        self.continuation.insert((*the_move, Self::new(board)));
     }
 
-    pub fn find_continuation_remove(
-        &mut self,
-        the_move: &PossibleMove,
-    ) -> Option<BoardContinuation> {
+    pub fn find_continuation_remove(&mut self, the_move: &PossibleMove) -> Option<Self> {
         let index_opt =
             self.continuation.iter().find_map(
                 |(index, (amove, _))| {
@@ -85,7 +81,7 @@ impl BoardContinuation {
         index_opt.map(|index| self.continuation.remove(index).unwrap().1)
     }
 
-    pub fn find_continuation(&self, the_move: &PossibleMove) -> Option<&BoardContinuation> {
+    pub fn find_continuation(&self, the_move: &PossibleMove) -> Option<&Self> {
         self.iter().find_map(|(possible_move, continuation)| {
             if possible_move == the_move {
                 Some(continuation)
@@ -95,10 +91,7 @@ impl BoardContinuation {
         })
     }
 
-    pub fn find_continuation_mut(
-        &mut self,
-        the_move: &PossibleMove,
-    ) -> Option<&mut BoardContinuation> {
+    pub fn find_continuation_mut(&mut self, the_move: &PossibleMove) -> Option<&mut Self> {
         self.continuation
             .iter_mut()
             .find_map(|(_, (possible_move, continuation))| {
@@ -110,7 +103,7 @@ impl BoardContinuation {
             })
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &BoardContinuation> {
+    pub fn values(&self) -> impl Iterator<Item = &Self> {
         self.continuation
             .iter()
             .map(|(_, (_, continutation))| continutation)
@@ -122,7 +115,7 @@ impl BoardContinuation {
             .map(|(_, (posssible_move, _))| posssible_move)
     }
 
-    pub fn merge(&mut self, mut to_merge: BoardContinuation) {
+    pub fn merge(&mut self, mut to_merge: Self) {
         to_merge
             .continuation
             .drain()
@@ -135,17 +128,17 @@ impl BoardContinuation {
             });
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(PossibleMove, BoardContinuation)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(PossibleMove, Self)> {
         self.continuation.iter().map(|(_, tuple)| tuple)
     }
 
     pub fn similar_quality_moves<'a, F>(
         &'a self,
-        best_board: &'a BoardContinuation,
+        best_board: &'a Self,
         score_query: F,
-    ) -> impl Iterator<Item = &'a BoardContinuation>
+    ) -> impl Iterator<Item = &'a Self>
     where
-        F: Fn(&BoardContinuation) -> f32,
+        F: Fn(&Self) -> f32,
     {
         let bb_score = score_query(best_board);
 
@@ -155,13 +148,9 @@ impl BoardContinuation {
         })
     }
 
-    pub fn select_similar_board<'a, F>(
-        &'a self,
-        best_board: &'a BoardContinuation,
-        score_query: F,
-    ) -> &'a BoardContinuation
+    pub fn select_similar_board<'a, F>(&'a self, best_board: &'a Self, score_query: F) -> &'a Self
     where
-        F: Fn(&BoardContinuation) -> f32,
+        F: Fn(&Self) -> f32,
     {
         let choices = self.similar_quality_moves(best_board, &score_query).count();
         self.similar_quality_moves(best_board, &score_query)
@@ -192,12 +181,23 @@ impl BoardContinuation {
         self.iter()
             .map(|(a_move, its_board)| {
                 format!(
-                    "{prefix}{:depth$}{a_move}\n{}",
+                    "{prefix}{:depth$}{a_move} ({}/{}) - {} \n{}",
                     "",
+                    its_board.score,
+                    its_board.adjusted_score,
+                    its_board.to_fen(),
                     its_board.internal_visualise(prefix, next_depth)
                 )
             })
             .join("")
+    }
+
+    pub fn score(&self) -> f32 {
+        if self.adjusted_score.is_nan() {
+            self.score
+        } else {
+            self.adjusted_score
+        }
     }
 }
 

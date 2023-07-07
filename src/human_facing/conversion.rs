@@ -20,17 +20,15 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::board::Castling::{
-    BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
-};
-use crate::baserules::board::{Castling, PSBoard};
-use crate::baserules::board_rep::AbsoluteBoardPos;
+use crate::baserules::board::PSBoard;
+use crate::baserules::castling::Castling;
 use crate::baserules::move_gen::{CASTLE_ALLOWED, CASTLE_FORBIDDEN};
+use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::*;
-use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
+use crate::util::TryWithPanic;
 use enumset::EnumSet;
 use std::fmt::{Display, Formatter};
 
@@ -99,7 +97,7 @@ impl PSBoard {
     /// <https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation>
     /// # Panics
     /// When the input string is an incorrect fen
-    pub fn from_fen(fen: &str) -> PSBoard {
+    pub fn from_fen(fen: &str) -> Self {
         let mut raw = RawBoard::empty();
         let mut next_move = None;
         let mut castling = EnumSet::empty();
@@ -113,54 +111,35 @@ impl PSBoard {
                     let mut col = 0;
                     for piece_info in fen_part.chars() {
                         if piece_info.is_ascii_digit() {
-                            col += piece_info as u8 - b'0' as u8;
+                            col += piece_info as u8 - b'0';
                         } else if piece_info == '/' {
                             col = 0;
                             assert_ne!(row, 0, "Should not have more rows on the chessboard!");
                             row -= 1;
                         } else {
-                            let color = if piece_info.is_uppercase() {
-                                White
-                            } else {
-                                Black
-                            };
-                            let kind = PieceKind::from_char(piece_info);
-                            raw.set_loc((row, col).try_into().unwrap(), &Some(PieceState { kind, color }));
+                            raw.set_loc(
+                                (row, col).transform(),
+                                &Some(PieceState::from_char(piece_info)),
+                            );
                             col += 1;
                         }
                     }
                 }
                 1 => {
-                    next_move = Some(match fen_part.chars().next().unwrap() {
-                        'w' => White,
-                        'b' => Black,
-                        _ => panic!("Unexpected color for the next move!"),
-                    });
+                    let deciphered_who_moves: PieceColor =
+                        fen_part.chars().next().unwrap().transform();
+                    next_move = Some(deciphered_who_moves);
                 }
                 2 => {
                     castling = EnumSet::new();
-                    for castle_right in fen_part.chars() {
-                        match castle_right {
-                            'Q' => castling |= WhiteQueenSide,
-                            'K' => castling |= WhiteKingSide,
-                            'q' => castling |= BlackQueenSide,
-                            'k' => castling |= BlackKingSide,
-                            '-' => {}
-                            _ => panic!("Incorrect castling details"),
-                        }
+                    for castle_right in fen_part.chars().filter(|c| *c != '-') {
+                        let additional_castling: Castling = castle_right.transform();
+                        castling |= additional_castling;
                     }
                 }
                 3 => {
-                    let mut fen_chars = fen_part.chars();
-                    let first_char = fen_chars.next().unwrap();
-                    if first_char != '-' {
-                        ep = Some(
-                            (
-                                first_char as u8 - 'a' as u8,
-                                fen_chars.next().unwrap() as u8 - '1' as u8,
-                            )
-                                .try_into().unwrap(),
-                        );
+                    if !fen_part.starts_with('-') {
+                        ep = Some(fen_part.transform());
                     }
                 }
                 4 => half = Some(fen_part.parse().unwrap()),
@@ -172,12 +151,8 @@ impl PSBoard {
         }
         PSBoard {
             score: raw.score(),
-            raw: raw,
-            who_moves: if let Some(mover) = next_move {
-                mover
-            } else {
-                panic!("Unspecified whose turn it is!")
-            },
+            raw,
+            who_moves: next_move.unwrap_or_else(|| panic!("Unspecified whose turn it is!")),
             king_move_gen: if castling.is_empty() {
                 &CASTLE_FORBIDDEN
             } else {
@@ -185,16 +160,8 @@ impl PSBoard {
             },
             castling,
             ep,
-            move_count: if let Some(mc) = full {
-                mc
-            } else {
-                panic!("Unspecified move count")
-            },
-            half_moves_since_pawn: if let Some(mc) = half {
-                mc
-            } else {
-                panic!("Unspecified half move count")
-            },
+            move_count: full.unwrap_or_else(|| panic!("Unspecified move count")),
+            half_moves_since_pawn: half.unwrap_or_else(|| panic!("Unspecified half move count")),
         }
     }
 
@@ -205,10 +172,10 @@ impl PSBoard {
     pub fn to_fen(&self) -> String {
         let mut ret = String::new();
         let mut since_piece: u8;
-        for row in (0..8).rev() {
+        for row in (0..8u8).rev() {
             since_piece = 0;
             for col in 0..8 {
-                if let Some(ps) = self.raw[(row, col).try_into().unwrap()] {
+                if let Some(ps) = self.raw[(row, col)] {
                     if since_piece != 0 {
                         ret.push((since_piece + b'0') as char);
                     }
@@ -225,36 +192,21 @@ impl PSBoard {
         }
         ret.pop();
         ret.push(' ');
-        ret.push(if self.who_moves == White { 'w' } else { 'b' });
+        ret.push(self.who_moves.fen_color());
         ret.push(' ');
         if self.castling.is_empty() {
             ret.push('-');
         } else {
-            static CASTLING_ORDER: &str = "KQkq";
-            static CASTLING_MASKS: [Castling; 4] =
-                [WhiteKingSide, WhiteQueenSide, BlackKingSide, BlackQueenSide];
-            ret.push_str(
-                CASTLING_ORDER
-                    .chars()
-                    .zip(CASTLING_MASKS.iter())
-                    .filter_map(|(sym, mask)| {
-                        if self.castling.contains(*mask) {
-                            Some(sym)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<String>()
-                    .as_str(),
-            );
+            let mut castling: Vec<char> = self
+                .castling
+                .iter()
+                .map(|a_castling| a_castling.fen_char())
+                .collect();
+            castling.sort();
+            ret.push_str(castling.into_iter().collect::<String>().as_str())
         }
         ret.push(' ');
-        if let Some(AbsoluteBoardPos(row, col)) = &self.ep {
-            ret.push((*col as u8 + b'a') as char);
-            ret.push((*row as u8 + b'1') as char);
-        } else {
-            ret.push('-');
-        }
+        ret.push_str(self.ep.map_or("-".into(), |p| p.to_string()).as_str());
         ret.push_str(format!(" {} {}", self.half_moves_since_pawn, self.move_count).as_str());
         ret
     }

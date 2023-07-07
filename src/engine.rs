@@ -27,11 +27,11 @@ pub mod gamestate;
 use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
-use crate::baserules::piece_color::PieceColor::*;
 use crate::util::DurationAverage;
 use std::cmp::Ordering;
 use std::ptr;
 use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering::Acquire;
 use std::sync::{Arc, Mutex};
 
 use crate::baserules::rawboard::is_mate;
@@ -63,15 +63,15 @@ pub struct ExplorationOutput {
 }
 
 impl Engine {
-    pub fn new() -> (Engine, GameState) {
-        Engine::with_board_gen(PSBoard::default)
+    pub fn new() -> (Self, GameState) {
+        Self::with_board_gen(PSBoard::default)
     }
 
-    pub fn from_fen(fen: &str) -> (Engine, GameState) {
-        Engine::with_board_gen(|| PSBoard::from_fen(fen))
+    pub fn from_fen(fen: &str) -> (Self, GameState) {
+        Self::with_board_gen(|| PSBoard::from_fen(fen))
     }
 
-    fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Engine, GameState) {
+    fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Self, GameState) {
         let sample_board = initial_board_provider();
         let mut moves = Vec::new();
         sample_board.gen_potential_moves(&mut moves);
@@ -85,7 +85,7 @@ impl Engine {
             }
         });
         (
-            Engine {
+            Self {
                 scoring_timings: Arc::new(Mutex::new(scoring_timings)),
             },
             GameState {
@@ -102,11 +102,7 @@ impl Engine {
         let maximum_depth = AtomicU8::new(0);
         let ret = to_count(&board_counter, &maximum_depth);
         board_counter.flush();
-        (
-            ret,
-            board_counter.get(),
-            maximum_depth.load(std::sync::atomic::Ordering::Acquire),
-        )
+        (ret, board_counter.get(), maximum_depth.load(Acquire))
     }
 
     // board count send instead of lock
@@ -116,11 +112,11 @@ impl Engine {
         deadline: &Duration,
     ) -> (Option<PossibleMove>, f32, u32, u8) {
         let ((best_move, score), board_count, maximum) =
-            Engine::manage_counter(|counter, maximum| {
+            Self::manage_counter(|counter, maximum| {
                 self.best_move_for_internal(
                     &mut state.worked_on_board,
                     deadline,
-                    Engine::parallel_exploration,
+                    Self::parallel_exploration,
                     0,
                     counter,
                     maximum,
@@ -148,10 +144,7 @@ impl Engine {
         F: Fn(&Self, ExplorationInput) -> ExplorationOutput,
     {
         let mut ret = (None, start_board.score);
-        let mate_multiplier = match start_board.who_moves {
-            White => 1.0,
-            Black => -1.0,
-        };
+        let mate_multiplier = start_board.who_moves.mate_multiplier();
 
         if !is_mate(start_board.score) {
             let mut moves = Vec::new();
@@ -195,14 +188,7 @@ impl Engine {
                     .iter()
                     .find_map(|(amove, aboard)| {
                         if ptr::eq(aboard, selected_board) {
-                            Some((
-                                Some(*amove),
-                                if selected_board.adjusted_score.is_nan() {
-                                    selected_board.score
-                                } else {
-                                    selected_board.adjusted_score
-                                },
-                            ))
+                            Some((Some(*amove), selected_board.score()))
                         } else {
                             None
                         }
@@ -228,7 +214,7 @@ impl Engine {
                 let (_, best_score) = self.best_move_for_internal(
                     board_with_move,
                     &a.single_move_deadline,
-                    Engine::sequential_exploration,
+                    Self::sequential_exploration,
                     a.curr_depth + 1,
                     a.counter,
                     a.maximum,
@@ -236,18 +222,13 @@ impl Engine {
                 );
                 best_score
             } else {
-                let mut val_before = a.maximum.load(std::sync::atomic::Ordering::Acquire);
+                let mut val_before = a.maximum.load(Acquire);
                 loop {
-                    let cur_max = a
-                        .maximum
-                        .fetch_max(a.curr_depth, std::sync::atomic::Ordering::Acquire);
+                    let cur_max = a.maximum.fetch_max(a.curr_depth, Acquire);
                     if cur_max == a.curr_depth {
-                        let res = a.maximum.compare_exchange(
-                            val_before,
-                            cur_max,
-                            std::sync::atomic::Ordering::Acquire,
-                            std::sync::atomic::Ordering::Acquire,
-                        );
+                        let res = a
+                            .maximum
+                            .compare_exchange(val_before, cur_max, Acquire, Acquire);
 
                         if let Err(err) = res {
                             val_before = err;
@@ -261,7 +242,7 @@ impl Engine {
                 board_with_move.score
             };
 
-            Engine::update_max_search(who, &mut a.max_search, curr_score);
+            Self::update_max_search(who, &mut a.max_search, curr_score);
         }
         ExplorationOutput {
             max_search: a.max_search,
@@ -269,21 +250,11 @@ impl Engine {
     }
 
     fn update_max_search(who: PieceColor, max_search: &mut [f32], curr_score: f32) {
-        if who == White {
-            max_search.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-            for (idx, a_good_score) in max_search.iter().enumerate() {
-                if *a_good_score < curr_score {
-                    max_search[idx] = curr_score;
-                    break;
-                }
-            }
-        } else {
-            max_search.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
-            for (idx, a_good_score) in max_search.iter().enumerate() {
-                if *a_good_score > curr_score {
-                    max_search[idx] = curr_score;
-                    break;
-                }
+        max_search.sort_unstable_by(who.score_comparator());
+        for (idx, a_good_score) in max_search.iter().enumerate() {
+            if who.is_better_score(*a_good_score, curr_score) {
+                max_search[idx] = curr_score;
+                break;
             }
         }
     }
@@ -303,11 +274,7 @@ impl Engine {
     {
         start_board.adjusted_score = 0.0;
         let who = start_board.who_moves;
-        let max_search = [if who == White {
-            f32::NEG_INFINITY
-        } else {
-            f32::INFINITY
-        }; 4];
+        let max_search = [who.worst_score(); 4];
 
         let mut max_search = exploration_method(
             self,
@@ -324,11 +291,7 @@ impl Engine {
         )
         .max_search;
 
-        max_search.sort_unstable_by(if who == White {
-            |a: &f32, b: &f32| a.partial_cmp(b).unwrap()
-        } else {
-            |a: &f32, b: &f32| b.partial_cmp(a).unwrap()
-        });
+        max_search.sort_unstable_by(who.score_comparator());
         for idx in 0..max_search.len() {
             let use_source_idx = if (max_search[idx] - max_search[3]).abs() > 10.0 {
                 3 // Does not consider bad situations where there is only a few good moves
@@ -367,7 +330,7 @@ impl Engine {
                         let (_, curr_score) = engine_clone.best_move_for_internal(
                             board_with_move,
                             &single_thread_deadline,
-                            Engine::sequential_exploration,
+                            Self::sequential_exploration,
                             a.curr_depth + 1,
                             a.counter,
                             a.maximum,
@@ -388,7 +351,7 @@ impl Engine {
 
             for join in joins {
                 let (curr_score, curr_move, timing_average, board_clone) = join.join().unwrap();
-                Engine::update_max_search(who, &mut a.max_search, curr_score);
+                Self::update_max_search(who, &mut a.max_search, curr_score);
                 {
                     let mut global_timings = self.scoring_timings.lock().unwrap();
                     global_timings.add(timing_average);
@@ -428,7 +391,7 @@ mod test {
             engine.exploration(
                 moves,
                 &mut gamestate.worked_on_board,
-                Duration::from_millis(100),
+                Duration::from_millis(200),
                 Engine::parallel_exploration,
                 0,
                 counter,
@@ -562,7 +525,7 @@ mod test {
     fn prep_failed_game_4() -> (Engine, GameState) {
         let (engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
-        let normal_duration = Duration::from_secs(1);
+        let normal_duration = Duration::from_secs(2);
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "d4", "Nxh8");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "dxc3", "Qh5+");
         engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Kd8", "Nf7+");
@@ -574,7 +537,7 @@ mod test {
     fn failed_game_4() {
         let (engine, mut gamestate) = prep_failed_game_4();
         let (_, move_to_do) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(5));
         let acceptable_moves = [
             PossibleMove::simple_from_uci("d8c8").unwrap(),
             PossibleMove::simple_from_uci("d8e8").unwrap(),

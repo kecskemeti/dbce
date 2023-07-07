@@ -55,7 +55,7 @@ pub fn calculate_move_for_console(
         (machine_eval.2 as u128) / 1.max(taken_this_much_time_ms)
     );
     println!(
-        "Evaluation result: {machine_move:?}, score: {}",
+        "Evaluation result: {machine_move}, score: {}",
         machine_eval.1
     );
     (taken_this_much_time, (machine_eval.0, machine_eval.1))

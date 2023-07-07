@@ -167,10 +167,11 @@ impl PieceState {
         }
     }
 
-    pub fn pawn_promote(&self, kind: PieceKind) -> &'static Option<PieceState> {
+    #[inline]
+    pub fn pawn_promote(&self, kind: PieceKind) -> &'static Option<Self> {
         assert_eq!(self.kind, Pawn);
-        let new_state = PieceState { kind, ..*self };
-        &ALL_POSSIBLE_PIECE_STATES[*(REVERSE_POSSIBLE_PIECE_STATES.get(&Some(new_state)).unwrap())]
+        let new_state = Self { kind, ..*self };
+        Self::from_u32(Self::bits_u32(&Some(new_state)))
     }
 
     #[inline]
@@ -179,12 +180,23 @@ impl PieceState {
     }
 
     #[inline]
-    pub fn masked_ps_conversion(col: usize, unmasked: u32) -> &'static Option<PieceState> {
+    pub fn masked_ps_conversion(col: usize, unmasked: u32) -> &'static Option<Self> {
         PieceState::from_u32(unsafe { ALL_POSSIBLE_MASKS.get_unchecked(col) } & unmasked)
     }
 
+    #[inline]
     pub fn bits(a_piece: &Option<PieceState>) -> u8 {
-        *REVERSE_POSSIBLE_PIECE_STATES.get(&a_piece).unwrap() as u8
+        Self::bits_usize(a_piece) as u8
+    }
+
+    #[inline]
+    pub fn bits_u32(a_piece: &Option<PieceState>) -> u32 {
+        Self::bits_usize(a_piece) as u32
+    }
+
+    #[inline]
+    pub fn bits_usize(a_piece: &Option<PieceState>) -> usize {
+        REVERSE_POSSIBLE_PIECE_STATES[a_piece]
     }
 }
 
