@@ -36,14 +36,14 @@ impl PieceColor {
     }
 }
 
-pub fn calculate_move_for_console(
+pub async fn calculate_move_for_console(
     engine: &Engine,
     gamestate: &mut GameState,
     deadline: &Duration,
 ) -> (Duration, (Option<PossibleMove>, f32)) {
     println!("Set a deadline of: {deadline:?}");
     let ins = Instant::now();
-    let machine_eval = engine.best_move_for(gamestate, deadline);
+    let machine_eval = engine.best_move_for(gamestate, deadline).await;
     let machine_move = machine_eval.0.as_ref().unwrap();
     let taken_this_much_time = ins.elapsed();
     let taken_this_much_time_ms = taken_this_much_time.as_millis();

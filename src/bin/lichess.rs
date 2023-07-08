@@ -114,7 +114,8 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                         for _ in 0..3 {
                             // it is our turn, let's see what we can come up with
                             let (dur, mymove) =
-                                helper::calculate_move_for_console(&engine, &mut state, &deadline);
+                                helper::calculate_move_for_console(&engine, &mut state, &deadline)
+                                    .await;
                             ourmovetime = dur;
                             if detected_color.is_this_resignable(mymove.1) {
                                 println!("Resign...");

@@ -106,7 +106,7 @@ impl Engine {
     }
 
     // board count send instead of lock
-    pub fn best_move_for(
+    pub async fn best_move_for(
         &self,
         state: &mut GameState,
         deadline: &Duration,
@@ -376,13 +376,15 @@ impl Engine {
 mod test {
     use std::time::Duration;
 
+    use crate::baserules::board::PSBoard;
     use crate::engine::{EngineThread, GameState};
     use crate::human_facing::helper;
     use crate::{baserules::board_rep::PossibleMove, engine::Engine};
+    use tokio::test;
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
-    fn weird_eval_1() {
+    async fn weird_eval_1() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
@@ -406,17 +408,18 @@ mod test {
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
-    fn weird_eval_2() {
+    async fn weird_eval_2() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let (_, (_, score)) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2))
+                .await;
         assert!(score < -6.0);
     }
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
-    fn weird_eval_3() {
+    async fn weird_eval_3() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
@@ -440,7 +443,7 @@ mod test {
 
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
     #[test]
-    fn weird_eval_4() {
+    async fn weird_eval_4() {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
@@ -464,11 +467,12 @@ mod test {
 
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
     #[test]
-    fn weird_eval_4_1() {
+    async fn weird_eval_4_1() {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let (_, (best, _)) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(2))
+                .await;
         assert!(!best
             .unwrap()
             .eq(&PossibleMove::simple_from_uci("b3f7").unwrap()));
@@ -482,32 +486,42 @@ mod test {
     }
 
     impl Engine {
-        fn build_continuation_and_move(
+        async fn build_continuation_and_move(
             &self,
             gamestate: &mut GameState,
             deadline: &Duration,
             engine_move: &str,
             opponent_move: &str,
         ) {
-            helper::calculate_move_for_console(self, gamestate, deadline);
+            helper::calculate_move_for_console(self, gamestate, deadline).await;
             gamestate.make_a_move_pair(engine_move, opponent_move);
         }
     }
 
     /// Test for this game: https://lichess.org/5fa8V5PVXDEL
     #[test]
-    fn weird_eval_5() {
+    async fn weird_eval_5() {
         let (engine, mut gamestate) =
             Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26");
         let initial_duration = Duration::from_secs(20);
-        engine.build_continuation_and_move(&mut gamestate, &initial_duration, "Kc3", "Rxg2");
+        engine
+            .build_continuation_and_move(&mut gamestate, &initial_duration, "Kc3", "Rxg2")
+            .await;
         let normal_duration = Duration::from_secs(8);
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rb1", "Rxh2");
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rb8", "Re8");
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rc4", "d6");
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Rcxc8", "Rh3+");
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "Rb1", "Rxh2")
+            .await;
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "Rb8", "Re8")
+            .await;
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "Rc4", "d6")
+            .await;
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "Rcxc8", "Rh3+")
+            .await;
         let (_, (best, _)) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &normal_duration);
+            helper::calculate_move_for_console(&engine, &mut gamestate, &normal_duration).await;
         let acceptable_moves = [
             PossibleMove::simple_from_uci("c3c2").unwrap(),
             PossibleMove::simple_from_uci("c3d2").unwrap(),
@@ -522,22 +536,29 @@ mod test {
     }
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
-    fn prep_failed_game_4() -> (Engine, GameState) {
+    async fn prep_failed_game_4() -> (Engine, GameState) {
         let (engine, mut gamestate) =
             Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
         let normal_duration = Duration::from_secs(2);
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "d4", "Nxh8");
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "dxc3", "Qh5+");
-        engine.build_continuation_and_move(&mut gamestate, &normal_duration, "Kd8", "Nf7+");
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "d4", "Nxh8")
+            .await;
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "dxc3", "Qh5+")
+            .await;
+        engine
+            .build_continuation_and_move(&mut gamestate, &normal_duration, "Kd8", "Nf7+")
+            .await;
         (engine, gamestate)
     }
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
     #[test]
-    fn failed_game_4() {
-        let (engine, mut gamestate) = prep_failed_game_4();
+    async fn failed_game_4() {
+        let (engine, mut gamestate) = prep_failed_game_4().await;
         let (_, move_to_do) =
-            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(5));
+            helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(5))
+                .await;
         let acceptable_moves = [
             PossibleMove::simple_from_uci("d8c8").unwrap(),
             PossibleMove::simple_from_uci("d8e8").unwrap(),
@@ -551,9 +572,9 @@ mod test {
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
     #[test]
-    fn failed_game_4_subtest() {
-        let (engine, mut gamestate) = prep_failed_game_4();
-        helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1));
+    async fn failed_game_4_subtest() {
+        let (engine, mut gamestate) = prep_failed_game_4().await;
+        helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1)).await;
         gamestate.make_a_human_move_or_panic("cxb2");
         let the_board = gamestate.continuation().clone();
         let mut moves = Vec::new();
@@ -563,10 +584,10 @@ mod test {
     }
 
     #[test]
-    fn retain_boards() {
+    async fn retain_boards() {
         let (engine, mut gamestate) = Engine::from_fen("8/8/8/8/6PP/6Pk/7P/7K w - - 0 1");
         let short_deadline = Duration::from_millis(1);
-        let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
+        let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
         gamestate.worked_on_board.visualise_explored_moves();
         let a_selected_move = *gamestate.worked_on_board.keys().next().unwrap();
@@ -577,10 +598,75 @@ mod test {
             .unwrap();
         let continuations_before = the_selected_board.total_continuation_boards();
         gamestate.make_a_generated_move(&a_selected_move);
-        let (_, _, board_count, depth) = engine.best_move_for(&mut gamestate, &short_deadline);
+        let (_, _, board_count, depth) =
+            engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
         gamestate.worked_on_board.visualise_explored_moves();
         let continuations_after = gamestate.worked_on_board.total_continuation_boards();
         assert_eq!(continuations_after - continuations_before, board_count);
+    }
+
+    /// Tests for this game: https://lichess.org/NPchEbrvI0qD
+    #[test]
+    async fn failed_game_1() {
+        let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
+        let (engine, mut gamestate) =
+            Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
+
+        gamestate.make_a_human_move("Rc1+").unwrap();
+        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
+
+        let move_to_do = engine
+            .best_move_for(&mut gamestate, &Duration::from_millis(1))
+            .await;
+        assert_eq!(
+            PossibleMove::simple_from_uci("a1c1").unwrap(),
+            move_to_do.0.unwrap()
+        );
+    }
+
+    /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
+    #[test]
+    async fn failed_game_2() {
+        let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
+        let (engine, mut gamestate) =
+            Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
+
+        gamestate.make_a_human_move("Qxf6+").unwrap();
+        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
+
+        let move_to_do = engine
+            .best_move_for(&mut gamestate, &Duration::from_millis(1))
+            .await;
+        let acceptable_moves = [
+            PossibleMove::simple_from_uci("d8c7").unwrap(),
+            PossibleMove::simple_from_uci("d8e8").unwrap(),
+        ];
+        let the_move = move_to_do.0.unwrap();
+        assert!(acceptable_moves
+            .iter()
+            .any(|acceptable| acceptable.eq(&the_move)));
+    }
+
+    /// Tests for this game: https://lichess.org/9KuuHpmFX74q
+    /// Ideally, this test should not have such a long deadline that we have now
+    #[test]
+    async fn failed_game_3() {
+        let board = PSBoard::from_fen(
+            "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
+        );
+        let (engine, mut gamestate) =
+            Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
+
+        gamestate.make_a_human_move("Qg7+").unwrap();
+        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
+
+        let move_to_do = engine
+            .best_move_for(&mut gamestate, &Duration::from_millis(1))
+            .await;
+        assert_eq!(
+            PossibleMove::simple_from_uci("f8e8").unwrap(),
+            move_to_do.0.unwrap()
+        );
     }
 }
