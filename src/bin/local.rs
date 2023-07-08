@@ -32,16 +32,18 @@ lazy_static! {
     static ref ENGINE_THINK_TIME: Duration = Duration::from_secs(5);
 }
 
-fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
+async fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
     println!("It's my move now, let me think:");
     let to_move = calculate_move_for_console(engine, gamestate, &ENGINE_THINK_TIME)
+        .await
         .1
          .0
         .unwrap();
     gamestate.make_a_generated_move(&to_move);
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let input = std::io::stdin();
     println!("Custom starting position?");
     let mut line = String::new();
@@ -58,7 +60,7 @@ fn main() {
     };
     let machine_moves_first: bool = thread_rng().gen();
     if machine_moves_first {
-        make_machine_move(&engine, &mut gamestate);
+        make_machine_move(&engine, &mut gamestate).await;
     }
     while !is_mate(gamestate.psboard().score) {
         println!("Current board: {}", gamestate.psboard());
@@ -75,7 +77,7 @@ fn main() {
         }
         println!("Current board: {}", gamestate.psboard());
         if !is_mate(gamestate.psboard().score) {
-            make_machine_move(&engine, &mut gamestate);
+            make_machine_move(&engine, &mut gamestate).await;
         } else {
             break;
         }

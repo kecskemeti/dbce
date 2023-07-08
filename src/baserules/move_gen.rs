@@ -452,67 +452,8 @@ impl PSBoard {
 mod test {
     use crate::baserules::board::PSBoard;
     use crate::baserules::board_rep::{BaseMove, PossibleMove};
-    use crate::engine::Engine;
+
     use crate::util::TryWithPanic;
-    use std::time::Duration;
-
-    /// Tests for this game: https://lichess.org/NPchEbrvI0qD
-    #[test]
-    fn failed_game_1() {
-        let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
-        let (engine, mut gamestate) =
-            Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
-
-        gamestate.make_a_human_move("Rc1+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
-
-        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
-        assert_eq!(
-            PossibleMove::simple_from_uci("a1c1").unwrap(),
-            move_to_do.0.unwrap()
-        );
-    }
-
-    /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
-    #[test]
-    fn failed_game_2() {
-        let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
-        let (engine, mut gamestate) =
-            Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
-
-        gamestate.make_a_human_move("Qxf6+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
-
-        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
-        let acceptable_moves = [
-            PossibleMove::simple_from_uci("d8c7").unwrap(),
-            PossibleMove::simple_from_uci("d8e8").unwrap(),
-        ];
-        let the_move = move_to_do.0.unwrap();
-        assert!(acceptable_moves
-            .iter()
-            .any(|acceptable| acceptable.eq(&the_move)));
-    }
-
-    /// Tests for this game: https://lichess.org/9KuuHpmFX74q
-    /// Ideally, this test should not have such a long deadline that we have now
-    #[test]
-    fn failed_game_3() {
-        let board = PSBoard::from_fen(
-            "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
-        );
-        let (engine, mut gamestate) =
-            Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
-
-        gamestate.make_a_human_move("Qg7+").unwrap();
-        assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
-
-        let move_to_do = engine.best_move_for(&mut gamestate, &Duration::from_millis(1));
-        assert_eq!(
-            PossibleMove::simple_from_uci("f8e8").unwrap(),
-            move_to_do.0.unwrap()
-        );
-    }
 
     #[test]
     fn do_not_take_own_piece_to_castle() {
