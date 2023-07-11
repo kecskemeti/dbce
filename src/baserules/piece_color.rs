@@ -42,18 +42,18 @@ pub enum PieceColor {
 lazy_static! {
     /// Colour dependent directional pawn moves for pawns that have already taken their first move
     static ref PAWN_SINGLE_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_more([(-1, 0)]),
-        White => RelativeBoardPos::transform_more([(1, 0)])
+        Black => RelativeBoardPos::transform_to_vec([(-1, 0)]),
+        White => RelativeBoardPos::transform_to_vec([(1, 0)])
     };
     /// Colour dependent directional pawn moves for pawns that have not moved yet
     static ref PAWN_DOUBLE_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_more([(-1, 0), (-2, 0)]),
-        White => RelativeBoardPos::transform_more([(1, 0), (2, 0)])
+        Black => RelativeBoardPos::transform_to_vec([(-1, 0), (-2, 0)]),
+        White => RelativeBoardPos::transform_to_vec([(1, 0), (2, 0)])
     };
     /// Colour dependent directional pawn moves for pawns that can take opponent pieces
     static ref PAWN_TAKES_STEPS: EnumMap<PieceColor, Vec<RelativeBoardPos>> = enum_map! {
-        Black => RelativeBoardPos::transform_more([(-1, 1), (-1, -1)]),
-        White => RelativeBoardPos::transform_more([(1, 1), (1, -1)])
+        Black => RelativeBoardPos::transform_to_vec([(-1, 1), (-1, -1)]),
+        White => RelativeBoardPos::transform_to_vec([(1, 1), (1, -1)])
     };
 }
 

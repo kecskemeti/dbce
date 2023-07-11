@@ -4,6 +4,8 @@ version = "0.1.5"
 authors = ["Gabor Kecskemeti"]
 edition = "2021"
 default-run = "lichess"
+readme = "Readme.md"
+license = "GPL-3.0+"
 
 [dependencies]
 lazy_static = "1.4.0"

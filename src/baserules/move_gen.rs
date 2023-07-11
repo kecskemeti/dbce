@@ -23,12 +23,10 @@
 
 use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::{BaseMove, PossibleMove};
-use crate::baserules::castling::{kingside_castle, queenside_castle, Castling};
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::*;
 use crate::baserules::positions::{AbsoluteBoardPos, RelativeBoardPos};
 use crate::util::TryWithPanic;
-use enumset::EnumSet;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::cmp::{max, min};
@@ -54,50 +52,39 @@ impl KingMove for Castle {
         the_moves: &mut Vec<PossibleMove>,
     ) {
         self.0.gen_king_moves(board, ab, the_moves);
-        let AbsoluteBoardPos(row, col) = ab;
         // Castling:
+        // the king is in its original location we need a more in depth check on castling
         if ab == board.who_moves.starting_king_pos() {
-            // the king is in its original location we need a more in depth check on castling
-            if !board.castling.is_disjoint(board.who_moves.all_castling()) {
-                // there are castling opportunities
-                static CASTLING_SIDE: [EnumSet<Castling>; 2] =
-                    [queenside_castle(), kingside_castle()];
-                static CASTLING_RANGES: [(u8, u8); 2] = [(1, 3), (5, 6)];
-                static CASTLING_MOVES: [[u8; 3]; 2] = [[2, 0, 3], [6, 7, 5]];
-                for (idx, side) in CASTLING_SIDE.iter().enumerate() {
-                    // castling is still allowed for the particular side &&
-                    // castling range is free of chess pieces
-                    if !board.castling.is_disjoint(*side)
-                        && (CASTLING_RANGES[idx].0..=CASTLING_RANGES[idx].1)
-                            .all(|in_between_col| board[(row, in_between_col)].is_none())
-                    {
-                        // Let's see if we would cross a check
-                        let otherside = board.switch_sides();
-                        let mincol = min(CASTLING_MOVES[idx][0], 4);
-                        let maxcol = max(CASTLING_MOVES[idx][0], 4);
-                        let crosses_check = {
-                            let mut other_side_moves = Vec::new();
-                            {
-                                otherside.gen_potential_moves(&mut other_side_moves);
-                            }
-                            other_side_moves.iter().any(|m| {
-                                m.the_move.to.0 == board.who_moves.piece_row()
-                                    && m.the_move.to.1 <= maxcol
-                                    && m.the_move.to.1 >= mincol
-                            })
-                        };
-                        if !crosses_check {
-                            // would not cross check
-                            the_moves.push(PossibleMove {
-                                the_move: BaseMove::move_in_row(row, col, CASTLING_MOVES[idx][0]),
-                                pawn_promotion: None,
-                                rook: Some(BaseMove::move_in_row(
-                                    row,
-                                    CASTLING_MOVES[idx][1],
-                                    CASTLING_MOVES[idx][2],
-                                )),
-                            });
+            // A particular castling direction is allowed:
+            for current_castling in board
+                .castling
+                .iter()
+                .filter(|a_castling| board.who_moves.all_castling().contains(*a_castling))
+            {
+                let castling_move: &PossibleMove = current_castling.into();
+                let mincol = min(castling_move.the_move.from.1, castling_move.the_move.to.1);
+                let maxcol = max(castling_move.the_move.from.1, castling_move.the_move.to.1);
+                // castling range is free of chess pieces
+                if (mincol..=maxcol).all(|in_between_col| {
+                    board[(castling_move.the_move.from.0, in_between_col)].is_none()
+                }) {
+                    // Is it free of potential checks on our king?
+                    // Let's see if we would cross a check
+                    let otherside = board.switch_sides();
+                    let crosses_check = {
+                        let mut other_side_moves = Vec::new();
+                        {
+                            otherside.gen_potential_moves(&mut other_side_moves);
                         }
+                        other_side_moves.iter().any(|m| {
+                            m.the_move.to.0 == castling_move.the_move.from.0
+                                && m.the_move.to.1 <= maxcol
+                                && m.the_move.to.1 >= mincol
+                        })
+                    };
+                    if !crosses_check {
+                        // would not cross check, the move is ok to emit
+                        the_moves.push(*castling_move);
                     }
                 }
             }
@@ -126,7 +113,7 @@ impl KingMove for NotCastle {
 
 impl PSBoard {
     /// does a dirty side switch to allow seeing castling issues
-    fn switch_sides(&self) -> PSBoard {
+    pub(crate) fn switch_sides(&self) -> PSBoard {
         PSBoard {
             who_moves: self.who_moves.invert(),
             king_move_gen: &CASTLE_FORBIDDEN,
@@ -136,7 +123,7 @@ impl PSBoard {
 
     /// Pieces can move and take till they hit another piece, assuming it is not the same colour
     #[inline]
-    fn piece_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
+    pub(crate) fn piece_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
         self[pos]
             .as_ref()
             .map_or(true, |other_piece| other_piece.color != self.who_moves)
@@ -144,13 +131,13 @@ impl PSBoard {
 
     /// Pawns can only move to empty spaces, cannot take in forward movement
     #[inline]
-    fn pawn_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
+    pub(crate) fn pawn_move_rule(&self, pos: AbsoluteBoardPos) -> bool {
         self[pos].is_none()
     }
 
     /// Pawns can take in diagonals, even with en passant
     #[inline]
-    fn pawn_take_rule(&self, pos: AbsoluteBoardPos) -> bool {
+    pub(crate) fn pawn_take_rule(&self, pos: AbsoluteBoardPos) -> bool {
         self[pos].as_ref().map_or_else(
             || {
                 // En passant
@@ -188,7 +175,7 @@ impl PSBoard {
     /// Generates a set of valid moves based on the coordinate adjustments passed in via the iterator
     /// Immediately deposits the moves in the output vector
     #[inline]
-    fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>, J>(
+    pub(crate) fn gen_moves_from_dirs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>, J>(
         &self,
         position: AbsoluteBoardPos,
         on_board_rule: &J,
@@ -209,7 +196,7 @@ impl PSBoard {
     /// This does the same as `gen_moves_from_dirs`, but stops at the first occasion
     /// when moves are no longer possible
     #[inline]
-    fn gen_moves_from_dirs_with_stop<'a, I, J>(
+    pub(crate) fn gen_moves_from_dirs_with_stop<'a, I, J>(
         &self,
         position: AbsoluteBoardPos,
         on_board_rule: &J,
@@ -228,7 +215,7 @@ impl PSBoard {
     }
 
     /// This generates moves based on directional vectors (useful for rooks, bishops and queens)
-    fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>>(
+    pub(crate) fn gen_moves_from_vecs<'a, I: IntoIterator<Item = &'a RelativeBoardPos>>(
         &self,
         position: AbsoluteBoardPos,
         vecs: I,
@@ -236,102 +223,38 @@ impl PSBoard {
     ) {
         // transform vec rel board
         for RelativeBoardPos(x, y) in vecs {
-            lazy_static! { static ref DIRECTIONAL_MOVES: [Vec<RelativeBoardPos>; 9] = [
-                // this array is laid out so it is easy to map into it with the below formula using just the input coords
-                RelativeBoardPos::transform_more([
-                    (-1, -1),
-                    (-2, -2),
-                    (-3, -3),
-                    (-4, -4),
-                    (-5, -5),
-                    (-6, -6),
-                    (-7, -7),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (-1, 0),
-                    (-2, 0),
-                    (-3, 0),
-                    (-4, 0),
-                    (-5, 0),
-                    (-6, 0),
-                    (-7, 0),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (-1, 1),
-                    (-2, 2),
-                    (-3, 3),
-                    (-4, 4),
-                    (-5, 5),
-                    (-6, 6),
-                    (-7, 7),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (0, -1),
-                    (0, -2),
-                    (0, -3),
-                    (0, -4),
-                    (0, -5),
-                    (0, -6),
-                    (0, -7),
-                ]),
-                RelativeBoardPos::transform_more([
-                    // filler to make the x-y mapping easier
-                    (0, 0)
-                ]),
-                RelativeBoardPos::transform_more([
-                    (0, 1),
-                    (0, 2),
-                    (0, 3),
-                    (0, 4),
-                    (0, 5),
-                    (0, 6),
-                    (0, 7),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (1, -1),
-                    (2, -2),
-                    (3, -3),
-                    (4, -4),
-                    (5, -5),
-                    (6, -6),
-                    (7, -7),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (1, 0),
-                    (2, 0),
-                    (3, 0),
-                    (4, 0),
-                    (5, 0),
-                    (6, 0),
-                    (7, 0),
-                ]),
-                RelativeBoardPos::transform_more([
-                    (1, 1),
-                    (2, 2),
-                    (3, 3),
-                    (4, 4),
-                    (5, 5),
-                    (6, 6),
-                    (7, 7),
-                ]),
-            ];}
-            let a = &DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
+            // this array is laid out so it is easy to map into it with the below formula using just the input coords
+            lazy_static! {
+                static ref DIRECTIONAL_MOVES: [Vec<RelativeBoardPos>; 9] =
+                [
+                    directional_mapper(|i| (-i, -i)), // South West
+                    directional_mapper(|i| (-i, 0)), // South
+                    directional_mapper(|i| (-i, i)), // South East
+                    directional_mapper(|i| (0, -i)), // West
+                    directional_mapper(|_| (0,0)), // Centre
+                    directional_mapper(|i| (0, i)), // East
+                    directional_mapper(|i| (i, -i)), // North West
+                    directional_mapper(|i| (i, 0)), // North
+                    directional_mapper(|i| (i, i)), // North East
+                ];
+            }
+            let curr_direction = &DIRECTIONAL_MOVES[(x + y + 2 * x + 4) as usize]; // the input coords directly map into the above array
             let allow_next = RefCell::new(true);
             self.gen_moves_from_dirs_with_stop(
                 position,
-                &move |s, m| {
+                &move |board, checked_pos| {
                     if *allow_next.borrow() {
                         // Ensures we can take a piece but not go further or we need to stop a step before our own pieces
-                        s[m].map_or(true, |trg| {
+                        board[checked_pos].map_or(true, |piece_at_pos| {
                             let mut d = allow_next.borrow_mut();
                             *d = false;
-                            !(trg.color == s.who_moves)
+                            !(piece_at_pos.color == board.who_moves)
                         })
                     } else {
                         false
                     }
                 },
-                a.iter(),
+                curr_direction.iter(),
                 out,
             );
         }
@@ -355,31 +278,32 @@ impl PSBoard {
         self.raw
             .into_iter()
             .enumerate()
-            .filter_map(|(idx, ps)| {
-                if let Some(curr) = ps {
-                    if curr.color == self.who_moves {
-                        return Some((
-                            idx.transform(),
-                            match curr.kind {
-                                King => PSBoard::gen_king_moves,
-                                Pawn => PSBoard::gen_pawn_moves,
-                                Knight => PSBoard::gen_knight_moves,
-                                Rook | Bishop | Queen => PSBoard::gen_vec_moves,
-                            },
-                        ));
+            .filter_map(|(idx, possible_piece)| {
+                possible_piece.map_or(None, |piece| {
+                    if piece.color == self.who_moves {
+                        Some((idx, piece))
+                    } else {
+                        None
                     }
-                }
-                None
+                })
             })
-            .for_each(|(loc, call)| call(self, loc, the_moves));
+            .for_each(|(idx, piece)| piece.kind.gen_moves(self, idx.transform(), the_moves));
     }
 
-    fn gen_king_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
+    pub(crate) fn gen_king_moves(
+        &self,
+        position: AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    ) {
         self.king_move_gen.gen_king_moves(self, position, the_moves);
     }
 
     /// Pawn moves, takes and promotions
-    fn gen_pawn_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
+    pub(crate) fn gen_pawn_moves(
+        &self,
+        position: AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    ) {
         // normal pawn move
         let prelen = the_moves.len();
         let pawn_move_now = if position.0 == self.who_moves.pawn_starting_row() {
@@ -427,25 +351,13 @@ impl PSBoard {
             }
         }
     }
+}
 
-    /// The knight moves are not directional, so we handle them specifically
-    fn gen_knight_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
-        self.gen_moves_from_dirs(
-            position,
-            &PSBoard::piece_move_rule,
-            Knight.vec_moves(),
-            the_moves,
-        );
-    }
-
-    /// All other pieces have simple directional movement, so we just use their directions to generate their possible moves
-    fn gen_vec_moves(&self, position: AbsoluteBoardPos, the_moves: &mut Vec<PossibleMove>) {
-        self.gen_moves_from_vecs(
-            position,
-            self.get_loc(position).unwrap().kind.vec_moves(),
-            the_moves,
-        );
-    }
+fn directional_mapper<F>(mapper: F) -> Vec<RelativeBoardPos>
+where
+    F: Fn(i8) -> (i8, i8),
+{
+    RelativeBoardPos::transform_to_vec((1..7).map(mapper))
 }
 
 #[cfg(test)]

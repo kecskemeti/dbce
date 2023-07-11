@@ -158,40 +158,8 @@ impl Display for PossibleMove {
 #[cfg(test)]
 mod test {
     use crate::baserules::board_rep::{BaseMove, PossibleMove};
-    use crate::baserules::piece_color::PieceColor::{Black, White};
-    use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
-    use crate::baserules::piece_state::PieceState;
+    use crate::baserules::piece_kind::PieceKind::Queen;
     use crate::baserules::positions::AbsoluteBoardPos;
-
-    #[test]
-    fn pstest() {
-        let triples = [
-            (White, King, 'K'),
-            (White, Knight, 'N'),
-            (White, Bishop, 'B'),
-            (White, Rook, 'R'),
-            (White, Queen, 'Q'),
-            (White, Pawn, 'P'),
-            (Black, King, 'k'),
-            (Black, Knight, 'n'),
-            (Black, Bishop, 'b'),
-            (Black, Rook, 'r'),
-            (Black, Queen, 'q'),
-            (Black, Pawn, 'p'),
-        ];
-        triples.iter().for_each(|(c, p, l)| {
-            assert_eq!(
-                format!(
-                    "{}",
-                    PieceState {
-                        kind: *p,
-                        color: *c
-                    }
-                ),
-                format!("{l}")
-            )
-        });
-    }
 
     #[test]
     fn clone_eq_test() {

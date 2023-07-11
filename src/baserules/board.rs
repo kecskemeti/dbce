@@ -69,6 +69,16 @@ impl Deref for PSBoard {
     }
 }
 
+impl<T> AsRef<T> for PSBoard
+where
+    T: ?Sized,
+    <PSBoard as Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref().as_ref()
+    }
+}
+
 impl Default for PSBoard {
     /// Creates the standard starting position
     /// # Panics
@@ -113,49 +123,38 @@ impl PSBoard {
     /// ```
     pub fn make_move_noncached(&self, the_move: &PossibleMove) -> Self {
         let mut raw_board = self.raw;
-        let piece_potentially_taken = self.get_loc(the_move.the_move.to);
-        {
-            if let Some(ep) = &self.ep {
-                let current_piece = &self.get_loc(the_move.the_move.from).unwrap();
-                if current_piece.kind == Pawn
-                    && ep.0 == the_move.the_move.to.0
-                    && ep.1 == the_move.the_move.to.1
-                {
-                    // En passant was done, the long move pawn was taken
-                    raw_board.set_loc(
-                        (the_move.the_move.from.0, the_move.the_move.to.1)
-                            .try_into()
-                            .unwrap(),
-                        &None,
-                    );
-                }
+        // The move for almost all the cases
+        let piece_before_move = self[the_move.the_move.from];
+        let piece_before_unwrapped = piece_before_move.as_ref().unwrap();
+        let piece_potentially_taken = self[the_move.the_move.to];
+        if let Some(ep) = &self.ep {
+            if piece_before_unwrapped.kind == Pawn && ep == &the_move.the_move.to {
+                // En passant was done, the long move pawn was taken
+                raw_board.set_loc(
+                    (the_move.the_move.from.0, the_move.the_move.to.1).transform(),
+                    &None,
+                );
             }
         }
-        // The move for almost all the cases
-        let piece_before_move = self.get_loc(the_move.the_move.from);
-        raw_board.set_loc(the_move.the_move.to, piece_before_move);
-        if let Some(promotion) = &the_move.pawn_promotion {
+        let current_piece_opt = if let Some(promotion) = &the_move.pawn_promotion {
             //When we need to convert a pawn to something
-            let piece = raw_board[the_move.the_move.to]
-                .unwrap()
-                .pawn_promote(*promotion);
-            raw_board.set_loc(the_move.the_move.to, piece);
-        } else if let Some(rook_move) = &the_move.rook {
+            piece_before_unwrapped.pawn_promote(*promotion)
+        } else {
+            &piece_before_move
+        };
+        raw_board.make_move_with(&the_move.the_move, current_piece_opt);
+
+        let current_piece = current_piece_opt.as_ref().unwrap();
+        if let Some(rook_move) = &the_move.rook {
             // when we are castling, the rook move is also stored
-            raw_board.set_loc(rook_move.to, self.get_loc(rook_move.from));
-            raw_board.set_loc(rook_move.from, &None);
+            raw_board.make_move_with(rook_move, &self[rook_move.from]);
         }
-        raw_board.set_loc(the_move.the_move.from, &None); // Where we left from is now empty
-        let current_piece = raw_board[the_move.the_move.to].unwrap();
         let (castling, king_move_gen) =
-            self.determine_castling_rights(&current_piece, the_move, piece_potentially_taken);
+            self.determine_castling_rights(current_piece, the_move, &piece_potentially_taken);
         PSBoard {
             score: raw_board.score(),
             raw: raw_board,
-            who_moves: match current_piece.color {
-                White => Black,
-                Black => White,
-            },
+            who_moves: current_piece.color.invert(),
             ep: if current_piece.kind == Pawn
                 && (the_move.the_move.from.0 as i8 - the_move.the_move.to.0 as i8).abs() == 2
             {
@@ -171,7 +170,7 @@ impl PSBoard {
             },
             castling,
             king_move_gen,
-            half_moves_since_pawn: if let Pawn = piece_before_move.unwrap().kind {
+            half_moves_since_pawn: if let Pawn = piece_before_unwrapped.kind {
                 0
             } else if piece_potentially_taken.is_some() {
                 0

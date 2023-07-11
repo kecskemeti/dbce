@@ -41,6 +41,16 @@ impl Deref for BoardContinuation {
     }
 }
 
+impl<T> AsRef<T> for BoardContinuation
+where
+    T: ?Sized,
+    <BoardContinuation as Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref().as_ref()
+    }
+}
+
 impl BoardContinuation {
     pub fn new(board: PSBoard) -> Self {
         Self {

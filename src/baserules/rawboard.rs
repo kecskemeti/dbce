@@ -21,6 +21,7 @@
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
 
+use crate::baserules::board_rep::BaseMove;
 use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
@@ -72,12 +73,31 @@ impl RawBoard {
         AbsoluteBoardPos(row, col): AbsoluteBoardPos,
         piece: &Option<PieceState>,
     ) {
-        let shift_amount = col << 2;
-        let piece_mask = !(0b1111 << shift_amount);
-        let us_row = row as usize;
+        let (shift_amount, piece_mask, us_row) = Self::shift_and_mask(row, col);
         let a_row = self.0[us_row] & piece_mask;
         let a_bit_piece = PieceState::bits_u32(piece) << shift_amount;
         self.0[us_row] = a_row | a_bit_piece;
+    }
+
+    /// Helper method to get the row and column information in forms usable by location based methods
+    #[inline]
+    fn shift_and_mask(row: u8, col: u8) -> (u8, u32, usize) {
+        let shift_amount = col << 2;
+        let piece_mask = !(0b1111 << shift_amount);
+        (shift_amount, piece_mask, row as usize)
+    }
+
+    #[inline]
+    pub fn clear_loc(&mut self, AbsoluteBoardPos(row, col): AbsoluteBoardPos) {
+        let (_, piece_mask, us_row) = Self::shift_and_mask(row, col);
+        self.0[us_row] &= piece_mask;
+    }
+
+    /// Makes a rudimentary move, sets the new loc with the piece given and erases the previous.
+    #[inline]
+    pub(crate) fn make_move_with(&mut self, the_move: &BaseMove, piece: &Option<PieceState>) {
+        self.set_loc(the_move.to, piece);
+        self.clear_loc(the_move.from);
     }
 
     /// A simple scoring mechanism which just counts up the pieces and pawns based on their usual values

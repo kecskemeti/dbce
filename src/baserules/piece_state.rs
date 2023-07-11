@@ -203,7 +203,7 @@ impl PieceState {
 #[cfg(test)]
 mod test {
     use crate::baserules::piece_color::PieceColor::{Black, White};
-    use crate::baserules::piece_kind::PieceKind::{King, Queen};
+    use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
     use crate::baserules::piece_state::{generate_masks, PieceState};
 
     #[test]
@@ -267,5 +267,35 @@ mod test {
         assert_eq!(masks[2], 0b111100000000);
         assert_eq!(masks[3], 0b1111000000000000);
         assert_eq!(masks[7], 0b11110000000000000000000000000000);
+    }
+
+    #[test]
+    fn pstest() {
+        let triples = [
+            (White, King, 'K'),
+            (White, Knight, 'N'),
+            (White, Bishop, 'B'),
+            (White, Rook, 'R'),
+            (White, Queen, 'Q'),
+            (White, Pawn, 'P'),
+            (Black, King, 'k'),
+            (Black, Knight, 'n'),
+            (Black, Bishop, 'b'),
+            (Black, Rook, 'r'),
+            (Black, Queen, 'q'),
+            (Black, Pawn, 'p'),
+        ];
+        triples.iter().for_each(|(c, p, l)| {
+            assert_eq!(
+                format!(
+                    "{}",
+                    PieceState {
+                        kind: *p,
+                        color: *c
+                    }
+                ),
+                format!("{l}")
+            )
+        });
     }
 }

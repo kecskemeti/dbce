@@ -20,7 +20,9 @@
  *
  *  (C) Copyright 2022-3, Gabor Kecskemeti
  */
-use crate::baserules::positions::RelativeBoardPos;
+use crate::baserules::board::PSBoard;
+use crate::baserules::board_rep::PossibleMove;
+use crate::baserules::positions::{AbsoluteBoardPos, RelativeBoardPos};
 use enum_iterator::{all, Sequence};
 use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
@@ -63,9 +65,9 @@ lazy_static! {
     /// For kings and knights it is all possible relative moves compared to their current square
     /// For bishops, rooks and queens it is listing directional vectors that point towards the pieces possible future positions achievable in a single step
     static ref PIECE_MOVES: EnumMap<PieceKind, Vec<RelativeBoardPos>> = enum_map! {
-        Bishop => RelativeBoardPos::transform_more([(-1, -1), (1, 1), (-1, 1), (1, -1)]),
-        Rook => RelativeBoardPos::transform_more([(-1, 0), (1, 0), (0, 1), (0, -1)]),
-        Knight => RelativeBoardPos::transform_more([
+        Bishop => RelativeBoardPos::transform_to_vec([(-1, -1), (1, 1), (-1, 1), (1, -1)]),
+        Rook => RelativeBoardPos::transform_to_vec([(-1, 0), (1, 0), (0, 1), (0, -1)]),
+        Knight => RelativeBoardPos::transform_to_vec([
            (-1, -2),
             (-1, 2),
             (-2, -1),
@@ -75,7 +77,7 @@ lazy_static! {
             (2, -1),
             (2, 1),
         ]),
-        King | Queen => RelativeBoardPos::transform_more([
+        King | Queen => RelativeBoardPos::transform_to_vec([
         (-1, -1),
         (1, 1),
         (-1, 1),
@@ -150,5 +152,27 @@ impl PieceKind {
     #[inline]
     pub fn to_u8(self) -> u8 {
         PIECE_ORD[self]
+    }
+
+    #[inline]
+    pub fn gen_moves(
+        &self,
+        board: &PSBoard,
+        pos: AbsoluteBoardPos,
+        the_moves: &mut Vec<PossibleMove>,
+    ) {
+        match self {
+            Pawn => board.gen_pawn_moves(pos, the_moves),
+            King => board.gen_king_moves(pos, the_moves),
+            // The knight moves are not directional, so we handle them specifically
+            Knight => board.gen_moves_from_dirs(
+                pos,
+                &PSBoard::piece_move_rule,
+                self.vec_moves(),
+                the_moves,
+            ),
+            // All other pieces have simple directional movement, so we just use their directions to generate their possible moves
+            Bishop | Rook | Queen => board.gen_moves_from_vecs(pos, self.vec_moves(), the_moves),
+        }
     }
 }

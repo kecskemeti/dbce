@@ -80,7 +80,7 @@ impl ops::Add<RelativeBoardPos> for AbsoluteBoardPos {
 }
 
 impl AbsoluteBoardPos {
-    pub fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<AbsoluteBoardPos> {
+    pub fn fallible_add(self, rhs: RelativeBoardPos) -> IntResult<Self> {
         let row = self.0 as i8 + rhs.0;
         let col = self.1 as i8 + rhs.1;
         (row.try_into()?, col.try_into()?).try_into()
@@ -95,11 +95,13 @@ impl ops::AddAssign<RelativeBoardPos> for AbsoluteBoardPos {
 }
 
 impl RelativeBoardPos {
-    pub fn transform_more(in_vec: impl AsRef<[(i8, i8)]>) -> Vec<RelativeBoardPos> {
-        in_vec
-            .as_ref()
-            .iter()
-            .map(|tuple| (*tuple).transform())
-            .collect()
+    pub fn transform_more(
+        in_iter: impl IntoIterator<Item = (i8, i8)>,
+    ) -> impl IntoIterator<Item = Self> {
+        in_iter.into_iter().map(|tuple| tuple.transform())
+    }
+
+    pub fn transform_to_vec(in_iter: impl IntoIterator<Item = (i8, i8)>) -> Vec<Self> {
+        Self::transform_more(in_iter).into_iter().collect()
     }
 }
