@@ -38,6 +38,7 @@ use crate::baserules::rawboard::is_mate;
 use crate::engine::continuation::BoardContinuation;
 use crate::engine::enginethread::EngineThread;
 use crate::engine::gamestate::GameState;
+use async_scoped::TokioScope;
 use global_counter::primitive::fast::FlushingCounterU32;
 use std::thread;
 use std::time::Duration;
@@ -130,7 +131,7 @@ impl Engine {
 
     // Determines the best move on the depth asked for
     // If the decide flag is passed, we will have the move generated, otherwise we just use this method for scoring
-    fn best_move_for_internal<F>(
+    async fn best_move_for_internal<F>(
         &self,
         start_board: &mut BoardContinuation,
         deadline: &Duration,
@@ -201,7 +202,7 @@ impl Engine {
         ret
     }
 
-    fn sequential_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
+    async fn sequential_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
         let who = a.start_board.who_moves;
         while let Some(curr_move) = a.moves.pop() {
             let board_with_move =
@@ -211,15 +212,17 @@ impl Engine {
             let curr_score = if !is_mate(board_with_move.score)
                 && (average_scoring_duration < a.single_move_deadline)
             {
-                let (_, best_score) = self.best_move_for_internal(
-                    board_with_move,
-                    &a.single_move_deadline,
-                    Self::sequential_exploration,
-                    a.curr_depth + 1,
-                    a.counter,
-                    a.maximum,
-                    a.thread_info,
-                );
+                let (_, best_score) = self
+                    .best_move_for_internal(
+                        board_with_move,
+                        &a.single_move_deadline,
+                        Self::sequential_exploration,
+                        a.curr_depth + 1,
+                        a.counter,
+                        a.maximum,
+                        a.thread_info,
+                    )
+                    .await;
                 best_score
             } else {
                 let mut val_before = a.maximum.load(Acquire);
@@ -310,65 +313,80 @@ impl Engine {
     }
 
     fn parallel_exploration(&self, mut a: ExplorationInput) -> ExplorationOutput {
-        thread::scope(|s| {
-            let who = a.start_board.who_moves;
-
-            let mut joins = Vec::new();
+        let who = a.start_board.who_moves;
+        let (_, joins) = TokioScope::scope_and_block(|s| {
             let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
 
             while let Some(curr_move) = a.moves.pop() {
-                let join_a = s.spawn({
-                    let mut board_clone = a.start_board.clone();
-                    let engine_clone = self.clone();
-                    let mut thread_info_clone = a.thread_info.clone();
-                    move || {
-                        let board_with_move = thread_info_clone.timing_remembering_move(
-                            &mut board_clone,
-                            &curr_move,
-                            a.counter,
-                        );
-                        let (_, curr_score) = engine_clone.best_move_for_internal(
-                            board_with_move,
-                            &single_thread_deadline,
-                            Self::sequential_exploration,
-                            a.curr_depth + 1,
-                            a.counter,
-                            a.maximum,
-                            &mut thread_info_clone,
-                        );
-                        a.counter.flush();
-                        (
-                            curr_score,
-                            curr_move,
-                            thread_info_clone.0.calc_average(),
-                            board_clone,
-                        )
-                    }
-                });
+                s.spawn(Self::abc(
+                    a.thread_info.clone(),
+                    a.start_board.clone(),
+                    self.clone(),
+                    &single_thread_deadline,
+                    curr_move,
+                    a.counter,
+                    a.maximum,
+                    a.curr_depth,
+                ));
+            }
+        });
 
-                joins.push(join_a);
+        for join in joins {
+            let (curr_score, curr_move, timing_average, board_clone): (
+                f32,
+                PossibleMove,
+                Duration,
+                BoardContinuation,
+            ) = join.unwrap();
+            Self::update_max_search(who, &mut a.max_search, curr_score);
+            {
+                let mut global_timings = self.scoring_timings.lock().unwrap();
+                global_timings.add(timing_average);
             }
 
-            for join in joins {
-                let (curr_score, curr_move, timing_average, board_clone) = join.join().unwrap();
-                Self::update_max_search(who, &mut a.max_search, curr_score);
-                {
-                    let mut global_timings = self.scoring_timings.lock().unwrap();
-                    global_timings.add(timing_average);
-                }
+            let width = a.curr_depth as usize;
+            println!(
+                "{:width$} Evaluated move: {curr_move}, score: {}, adjusted: {}",
+                "", a.start_board.score, a.start_board.adjusted_score
+            );
 
-                let width = a.curr_depth as usize;
-                println!(
-                    "{:width$} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                    "", a.start_board.score, a.start_board.adjusted_score
-                );
+            a.start_board.merge(board_clone);
+        }
+        ExplorationOutput {
+            max_search: a.max_search,
+        }
+    }
 
-                a.start_board.merge(board_clone);
-            }
-            ExplorationOutput {
-                max_search: a.max_search,
-            }
-        })
+    async fn abc(
+        mut thread_info_clone: EngineThread,
+        mut board_clone: BoardContinuation,
+        engine_clone: Engine,
+        single_thread_deadline: &Duration,
+        curr_move: PossibleMove,
+        counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
+        curr_depth: u8,
+    ) -> (f32, PossibleMove, Duration, BoardContinuation) {
+        let board_with_move =
+            thread_info_clone.timing_remembering_move(&mut board_clone, &curr_move, counter);
+        let (_, curr_score) = engine_clone
+            .best_move_for_internal(
+                board_with_move,
+                single_thread_deadline,
+                Self::sequential_exploration,
+                curr_depth + 1,
+                counter,
+                maximum,
+                &mut thread_info_clone,
+            )
+            .await;
+        counter.flush();
+        (
+            curr_score,
+            curr_move,
+            thread_info_clone.0.calc_average(),
+            board_clone,
+        )
     }
 }
 
