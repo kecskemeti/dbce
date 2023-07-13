@@ -23,9 +23,6 @@
 
 extern crate rand;
 
-use crate::baserules::board::Castling::{
-    BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide,
-};
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::{Black, White};
@@ -94,7 +91,7 @@ impl Default for PSBoard {
         PSBoard {
             raw: RawBoard::default(),
             who_moves: White,
-            castling: BlackKingSide | BlackQueenSide | WhiteKingSide | WhiteQueenSide,
+            castling: EnumSet::ALL,
             ep: None,
             move_count: 0,
             half_moves_since_pawn: 0,
@@ -136,12 +133,12 @@ impl PSBoard {
                 );
             }
         }
-        let current_piece_opt = if let Some(promotion) = &the_move.pawn_promotion {
-            //When we need to convert a pawn to something
-            piece_before_unwrapped.pawn_promote(*promotion)
-        } else {
-            &piece_before_move
-        };
+        //Changing pieces if we need to convert a pawn to something
+        let current_piece_opt = the_move
+            .pawn_promotion
+            .map_or(&piece_before_move, |promotion| {
+                piece_before_unwrapped.pawn_promote(promotion)
+            });
         raw_board.make_move_with(&the_move.the_move, current_piece_opt);
 
         let current_piece = current_piece_opt.as_ref().unwrap();
@@ -195,12 +192,12 @@ impl PSBoard {
                 changed = true;
                 new_castling ^= current_piece.color.all_castling();
             } else if current_piece.kind == Rook {
-                if the_move.the_move.from.1 == 7 {
-                    changed = true;
-                    new_castling ^= current_piece.color.king_side_castling();
-                } else if the_move.the_move.from.1 == 0 {
-                    changed = true;
-                    new_castling ^= current_piece.color.queen_side_castling();
+                for a_castling_side in current_piece.color.all_castling() {
+                    let the_castling_move: &PossibleMove = a_castling_side.into();
+                    if the_castling_move.rook.unwrap().from == the_move.the_move.from {
+                        changed = true;
+                        new_castling ^= a_castling_side;
+                    }
                 }
             }
             if (the_move.the_move.to.0 == 0 || the_move.the_move.to.0 == 7)
@@ -208,12 +205,13 @@ impl PSBoard {
             {
                 if let Some(taken) = possible_capture {
                     if taken.kind == Rook {
+                        let opponent_color = current_piece.color.invert();
                         if the_move.the_move.to.1 == 0 {
                             changed = true;
-                            new_castling ^= current_piece.color.invert().queen_side_castling();
+                            new_castling ^= opponent_color.queen_side_castling();
                         } else {
                             changed = true;
-                            new_castling ^= current_piece.color.invert().king_side_castling();
+                            new_castling ^= opponent_color.king_side_castling();
                         }
                     }
                 }
@@ -227,27 +225,6 @@ impl PSBoard {
             }
         }
         (new_castling, king_mover)
-    }
-
-    /// Determines what piece is at a particular location of the board
-    ///
-    /// # Example use:
-    /// ```
-    /// use dbce::baserules::board::PSBoard;
-    /// use dbce::baserules::piece_color::PieceColor::White;
-    /// use dbce::baserules::piece_kind::PieceKind::King;
-    /// use dbce::baserules::piece_state::PieceState;
-    /// use dbce::baserules::positions::AbsoluteBoardPos;
-    /// use dbce::util::TryWithPanic;
-    ///
-    /// let board = PSBoard::default();
-    /// let king_pos:AbsoluteBoardPos = "e1".transform();
-    /// let king = board.get_loc(king_pos);
-    /// assert_eq!(&Some(PieceState { kind: King, color: White }),king)
-    /// ```
-    #[inline]
-    pub fn get_loc(&self, pos: AbsoluteBoardPos) -> &Option<PieceState> {
-        &self.raw[pos]
     }
 }
 

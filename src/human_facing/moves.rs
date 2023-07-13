@@ -24,8 +24,20 @@ use crate::baserules::board_rep::{BaseMove, PossibleMove};
 use crate::baserules::castling::Castling;
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
+use crate::baserules::positions::AbsoluteBoardPos;
 use crate::engine::continuation::BoardContinuation;
-use crate::util::IntResult;
+use crate::util::{IntResult, TryWithPanic};
+
+fn accept_promotion(promote_kind: &Option<PieceKind>, candidate_move: &PossibleMove) -> bool {
+    promote_kind.map_or_else(
+        || candidate_move.pawn_promotion.is_none(),
+        |knd| {
+            candidate_move
+                .pawn_promotion
+                .map_or(false, |ppm| knd == ppm)
+        },
+    )
+}
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
@@ -35,17 +47,18 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
     let mut col = Vec::new();
     let mut piece_kind = PieceKind::Pawn;
     let mut castling = false;
-    let mut internal_move = None;
     match first_char {
-        'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => col.push(first_char as u8 - b'a'),
+        'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
+            col.push(AbsoluteBoardPos::parse_column(first_char.try_into().unwrap()).unwrap())
+        }
         'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = PieceKind::from_char(first_char),
         'O' => castling = true,
         _ => panic!("Unexpected chess notation"),
     }
-    if castling {
+    let found_move = if castling {
         let castling_done = Castling::from_notation(the_move, board.who_moves).unwrap();
         let castling_move: &'static PossibleMove = castling_done.into();
-        internal_move = Some(*castling_move);
+        Some(*castling_move)
     } else {
         let mut row = Vec::new();
         let mut promotion = false;
@@ -54,13 +67,15 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
             let first_char = rev_move.pop();
             if let Some(consecutive) = first_char {
                 match consecutive {
-                    'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
-                        col.push(consecutive as u8 - b'a')
+                    'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => col.push(
+                        AbsoluteBoardPos::parse_column(consecutive.try_into().unwrap()).unwrap(),
+                    ),
+                    'x' | '+' | '#' => {
+                        // Takes, check, and mate are not relevant here, we already handle them with move-gen below
                     }
-                    'x' | '+' | '#' => {}
-                    '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => {
-                        row.push(consecutive as u8 - b'1')
-                    }
+                    '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' => row.push(
+                        AbsoluteBoardPos::parse_row(consecutive.try_into().unwrap()).unwrap(),
+                    ),
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
                         if promotion {
@@ -75,95 +90,37 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
         }
         let mut all_moves = Vec::new();
         board.gen_potential_moves(&mut all_moves);
-        if row.len() == 1 {
-            if col.len() == 1 {
-                let target = (row.pop().unwrap(), col.pop().unwrap());
-                // regular move
-                for a_move in all_moves {
-                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
-                    if moving_piece.kind == piece_kind
-                        && a_move.the_move.to.0 == target.0
-                        && a_move.the_move.to.1 == target.1
-                    {
-                        if promotion {
-                            if let Some(knd) = promote_kind {
-                                if let Some(ppm) = &a_move.pawn_promotion {
-                                    if knd == *ppm {
-                                        internal_move = Some(a_move);
-                                        break;
-                                    }
-                                }
-                            } else {
-                                internal_move = Some(a_move);
-                                break;
-                            }
-                        } else {
-                            internal_move = Some(a_move);
-                            break;
-                        }
-                    }
-                }
+        let target = (row.pop().unwrap(), col.pop().unwrap()).transform();
+        let filter: Box<dyn Fn(&Option<PieceKind>, &PossibleMove) -> bool> = if row.is_empty() {
+            if col.is_empty() {
+                // regular move, no clarification needed for the moving piece
+                Box::new(accept_promotion)
             } else {
-                let target = (row.pop().unwrap(), col.pop().unwrap());
+                // Clarification enough to contain extra column detail
                 let source_col = col.pop().unwrap();
-                for a_move in all_moves {
-                    let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
-                    if moving_piece.kind == piece_kind
-                        && a_move.the_move.from.1 == source_col
-                        && a_move.the_move.to.0 == target.0
-                        && a_move.the_move.to.1 == target.1
-                    {
-                        if promotion {
-                            if let Some(knd) = promote_kind {
-                                if let Some(ppm) = &a_move.pawn_promotion {
-                                    if knd == *ppm {
-                                        internal_move = Some(a_move);
-                                        break;
-                                    }
-                                }
-                            } else {
-                                internal_move = Some(a_move);
-                                break;
-                            }
-                        } else {
-                            internal_move = Some(a_move);
-                            break;
-                        }
-                    }
-                }
+                Box::new(move |promote_kind, candidate_move| {
+                    candidate_move.the_move.from.1 == source_col
+                        && accept_promotion(promote_kind, candidate_move)
+                })
             }
-        } else if col.len() == 1 {
-            let target = (row.pop().unwrap(), col.pop().unwrap());
+        } else if col.is_empty() {
+            // Clarification enough to contain extra row detail, can't apply to pawns, no promotion handling needed
             let source_row = row.pop().unwrap();
-            for a_move in all_moves {
-                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
-                if moving_piece.kind == piece_kind
-                    && a_move.the_move.from.0 == source_row
-                    && a_move.the_move.to.0 == target.0
-                    && a_move.the_move.to.1 == target.1
-                {
-                    internal_move = Some(a_move);
-                    break;
-                }
-            }
+            Box::new(move |_, candidate_move| candidate_move.the_move.from.0 == source_row)
         } else {
-            let target = (row.pop().unwrap(), col.pop().unwrap());
-            let source = (row.pop().unwrap(), col.pop().unwrap());
-            for a_move in all_moves {
-                let moving_piece = board.get_loc(a_move.the_move.from).as_ref().unwrap();
-                if moving_piece.kind == piece_kind
-                    && a_move.the_move.from.0 == source.0
-                    && a_move.the_move.from.1 == source.1
-                    && a_move.the_move.to.0 == target.0
-                    && a_move.the_move.to.1 == target.1
-                {
-                    internal_move = Some(a_move);
-                    break;
-                }
-            }
-        }
-    }
-    internal_move.map(|im| board.make_cached_move(&im))
+            // Move needs all coordinates as it would be ambiguous otherwise, can't apply to pawns, no promotion handling needed
+            let source = (row.pop().unwrap(), col.pop().unwrap()).transform();
+            Box::new(move |_, candidate_move| candidate_move.the_move.from == source)
+        };
+
+        all_moves.into_iter().find(|candidate_move| {
+            let moving_piece = board[candidate_move.the_move.from].as_ref().unwrap();
+            moving_piece.kind == piece_kind
+                && candidate_move.the_move.to == target
+                && filter(&promote_kind, candidate_move)
+        })
+    };
+    found_move.map(|im| board.make_cached_move(&im))
 }
 
 /// Allows moves to be translated from lichess to our internal representation
@@ -193,25 +150,16 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
             rook: None,
         }
     } else {
-        let moving_piece = board.get_loc(the_move.from).as_ref().unwrap();
-        let rook_move = BaseMove::move_in_row(
-            the_move.from.0,
-            if the_move.to.1 == 6 { 7 } else { 0 },
-            if the_move.to.1 == 6 { 5 } else { 3 },
-        );
-        PossibleMove {
-            the_move,
-            pawn_promotion: None,
-            rook: if !board.castling.is_empty()
-                && (the_move.to.0 == 0 || the_move.to.0 == 7)
-                && the_move.from.1 == 4
-                && (the_move.to.1 == 6 || the_move.to.1 == 2)
-                && moving_piece.kind == King
-            {
-                Some(rook_move)
-            } else {
-                None
-            },
+        let moving_piece = board[the_move.from].as_ref().unwrap();
+        let simple_move = PossibleMove::simple_move(the_move);
+        if moving_piece.kind == King {
+            board
+                .castling
+                .iter()
+                .find_map(|c| c.from_king_move(the_move))
+                .unwrap_or(simple_move)
+        } else {
+            simple_move
         }
     };
     Ok(board.make_cached_move(&the_complete_move))
@@ -221,7 +169,7 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
 mod test {
     use crate::baserules::board::PSBoard;
     use crate::engine::continuation::BoardContinuation;
-    use crate::human_facing::moves::make_a_human_move;
+    use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
 
     #[test]
     fn test_rook_takes() {
@@ -233,5 +181,40 @@ mod test {
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
             result.unwrap().to_fen()
         );
+    }
+
+    fn test_castle_base(premove: Option<&str>, uci: &str, exp_black: &str, exp_white: &str) {
+        let board =
+            PSBoard::from_fen("r3k2r/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/R3K2R w KQkq - 2 9");
+        let mut cont = BoardContinuation::new(board);
+        if let Some(white_move) = premove {
+            let after_move = make_an_uci_move(cont, white_move);
+            assert!(after_move.is_ok());
+            cont = after_move.unwrap();
+        }
+        let result = make_an_uci_move(cont, uci);
+        assert!(result.is_ok());
+        assert_eq!(
+            format!("{exp_black}/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/{exp_white}"),
+            result.unwrap().raw.to_fen_prefix()
+        );
+    }
+
+    #[test]
+    fn test_black_castle_queenside() {
+        test_castle_base(Some("e1g1"), "e8c8", "2kr3r", "R4RK1");
+    }
+
+    #[test]
+    fn test_black_castle_kingside() {
+        test_castle_base(Some("e1g1"), "e8g8", "r4rk1", "R4RK1");
+    }
+    #[test]
+    fn test_white_castle_queenside() {
+        test_castle_base(None, "e1c1", "r3k2r", "2KR3R");
+    }
+    #[test]
+    fn test_white_castle_kingside() {
+        test_castle_base(None, "e1g1", "r3k2r", "R4RK1");
     }
 }

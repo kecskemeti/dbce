@@ -63,16 +63,19 @@ impl PieceColor {
     pub fn pawn_single_step(self) -> &'static Vec<RelativeBoardPos> {
         &PAWN_SINGLE_STEPS[self]
     }
+
     /// Quick query for the first pawn move direction per colour
     #[inline]
     pub fn pawn_double_step(self) -> &'static Vec<RelativeBoardPos> {
         &PAWN_DOUBLE_STEPS[self]
     }
+
     /// Quick query for the taking pawn moves per colour
     #[inline]
     pub fn pawn_takes_step(self) -> &'static Vec<RelativeBoardPos> {
         &PAWN_TAKES_STEPS[self]
     }
+
     /// Determine pawn promotion row for a colour
     #[inline]
     pub const fn pawn_promotion_row(self) -> u8 {
@@ -81,6 +84,7 @@ impl PieceColor {
             White => 7,
         }
     }
+
     /// Determine piece starting row for a colour
     #[inline]
     pub const fn piece_row(self) -> u8 {
@@ -89,6 +93,7 @@ impl PieceColor {
             White => 0,
         }
     }
+
     #[inline]
     pub const fn pawn_starting_row(self) -> u8 {
         match self {
@@ -96,6 +101,7 @@ impl PieceColor {
             White => 1,
         }
     }
+
     #[inline]
     pub fn from_u8(colour: u8) -> Self {
         if colour & 8 > 0 {
@@ -104,6 +110,7 @@ impl PieceColor {
             Black
         }
     }
+
     #[inline]
     pub fn add_to_u8(self, prepped: u8) -> u8 {
         prepped
@@ -112,6 +119,7 @@ impl PieceColor {
                 Black => 0,
             }
     }
+
     #[inline]
     pub const fn all_castling(&self) -> EnumSet<Castling> {
         match self {
@@ -119,6 +127,7 @@ impl PieceColor {
             White => white_can_castle(),
         }
     }
+
     #[inline]
     pub const fn king_side_castling(&self) -> Castling {
         match self {
@@ -126,6 +135,7 @@ impl PieceColor {
             White => WhiteKingSide,
         }
     }
+
     #[inline]
     pub const fn queen_side_castling(&self) -> Castling {
         match self {
@@ -133,6 +143,7 @@ impl PieceColor {
             White => WhiteQueenSide,
         }
     }
+
     #[inline]
     pub const fn invert(&self) -> Self {
         match self {
@@ -140,10 +151,12 @@ impl PieceColor {
             Black => White,
         }
     }
+
     #[inline]
     pub const fn starting_king_pos(&self) -> AbsoluteBoardPos {
         AbsoluteBoardPos(self.piece_row(), 4)
     }
+
     #[inline]
     pub const fn fen_color(&self) -> char {
         match self {
@@ -151,6 +164,7 @@ impl PieceColor {
             Black => 'b',
         }
     }
+
     #[inline]
     pub const fn mate_multiplier(&self) -> f32 {
         match self {
@@ -198,5 +212,42 @@ impl TryFrom<char> for PieceColor {
             'b' => Ok(Black),
             _ => Err("Invalid piece color char".into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::baserules::piece_color::PieceColor::{Black, White};
+
+    #[test]
+    fn test_better_score_white() {
+        assert!(White.is_better_score(2.0, 3.0));
+    }
+    #[test]
+    fn test_worse_score_white() {
+        assert!(!White.is_better_score(3.0, 2.0));
+    }
+
+    #[test]
+    fn test_better_score_black() {
+        assert!(Black.is_better_score(-2.0, -3.0));
+    }
+    #[test]
+    fn test_worse_score_black() {
+        assert!(!Black.is_better_score(-3.0, -2.0));
+    }
+
+    #[test]
+    fn test_score_sorting_white() {
+        let mut sample_scores = [-2., -5., 11., -33.3, 1.2];
+        sample_scores.sort_by(White.score_comparator());
+        assert_eq!([-33.3, -5., -2., 1.2, 11.], sample_scores);
+    }
+
+    #[test]
+    fn test_score_sorting_black() {
+        let mut sample_scores = [-2., -5., 11., -33.3, 1.2];
+        sample_scores.sort_by(Black.score_comparator());
+        assert_eq!([11., 1.2, -2., -5., -33.3], sample_scores);
     }
 }

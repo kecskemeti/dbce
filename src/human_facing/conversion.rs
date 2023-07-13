@@ -106,30 +106,14 @@ impl PSBoard {
         let mut full: Option<u16> = None;
         for (idx, fen_part) in fen.split_whitespace().enumerate() {
             match idx {
-                0 => {
-                    let mut row = 7;
-                    let mut col = 0;
-                    for piece_info in fen_part.chars() {
-                        if piece_info.is_ascii_digit() {
-                            col += piece_info as u8 - b'0';
-                        } else if piece_info == '/' {
-                            col = 0;
-                            assert_ne!(row, 0, "Should not have more rows on the chessboard!");
-                            row -= 1;
-                        } else {
-                            raw.set_loc(
-                                (row, col).transform(),
-                                &Some(PieceState::from_char(piece_info)),
-                            );
-                            col += 1;
-                        }
-                    }
-                }
+                0 => raw = RawBoard::from_fen_prefix(fen_part),
+
                 1 => {
                     let deciphered_who_moves: PieceColor =
                         fen_part.chars().next().unwrap().transform();
                     next_move = Some(deciphered_who_moves);
                 }
+
                 2 => {
                     castling = EnumSet::new();
                     for castle_right in fen_part.chars().filter(|c| *c != '-') {
@@ -137,11 +121,13 @@ impl PSBoard {
                         castling |= additional_castling;
                     }
                 }
+
                 3 => {
                     if !fen_part.starts_with('-') {
                         ep = Some(fen_part.transform());
                     }
                 }
+
                 4 => half = Some(fen_part.parse().unwrap()),
 
                 5 => full = Some(fen_part.parse().unwrap()),
@@ -170,27 +156,7 @@ impl PSBoard {
     /// # Panics
     /// When `PieceState` is failing to produce a proper output
     pub fn to_fen(&self) -> String {
-        let mut ret = String::new();
-        let mut since_piece: u8;
-        for row in (0..8u8).rev() {
-            since_piece = 0;
-            for col in 0..8 {
-                if let Some(ps) = self.raw[(row, col)] {
-                    if since_piece != 0 {
-                        ret.push((since_piece + b'0') as char);
-                    }
-                    ret.push(format!("{ps}").pop().unwrap());
-                    since_piece = 0;
-                } else {
-                    since_piece += 1;
-                }
-            }
-            if since_piece != 0 {
-                ret.push((since_piece + b'0') as char);
-            }
-            ret.push('/');
-        }
-        ret.pop();
+        let mut ret = self.raw.to_fen_prefix();
         ret.push(' ');
         ret.push(self.who_moves.fen_color());
         ret.push(' ');

@@ -1,7 +1,6 @@
 use crate::util::{AnyError, IntResult, TryWithPanic};
 use std::fmt::{Display, Formatter};
 use std::ops;
-use std::str::FromStr;
 
 /// Allows representing relative locations on the board (hence the signedness)
 #[derive(Eq, Hash, Copy, Clone, PartialEq, Debug, Default)]
@@ -45,8 +44,9 @@ impl TryFrom<&str> for AbsoluteBoardPos {
     type Error = AnyError;
     /// Allows loading absolute board coordinates to a BoardPos struct
     fn try_from(coord: &str) -> Result<Self, Self::Error> {
-        let row = u8::from_str(&coord[1..2])? - 1;
-        let col: u8 = (coord.as_bytes()[0] as i8 - b'a' as i8).try_into()?;
+        let coord_bytes = coord.as_bytes();
+        let col = Self::parse_column(coord_bytes[0])?;
+        let row = Self::parse_row(coord_bytes[1])?;
         (row, col).try_into()
     }
 }
@@ -84,6 +84,12 @@ impl AbsoluteBoardPos {
         let row = self.0 as i8 + rhs.0;
         let col = self.1 as i8 + rhs.1;
         (row.try_into()?, col.try_into()?).try_into()
+    }
+    pub fn parse_column(col: u8) -> IntResult<u8> {
+        Ok((i8::try_from(col)? - b'a' as i8).try_into()?)
+    }
+    pub fn parse_row(row: u8) -> IntResult<u8> {
+        Ok((i8::try_from(row)? - b'1' as i8).try_into()?)
     }
 }
 

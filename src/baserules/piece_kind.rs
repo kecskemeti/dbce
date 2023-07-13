@@ -67,47 +67,13 @@ lazy_static! {
     static ref PIECE_MOVES: EnumMap<PieceKind, Vec<RelativeBoardPos>> = enum_map! {
         Bishop => RelativeBoardPos::transform_to_vec([(-1, -1), (1, 1), (-1, 1), (1, -1)]),
         Rook => RelativeBoardPos::transform_to_vec([(-1, 0), (1, 0), (0, 1), (0, -1)]),
-        Knight => RelativeBoardPos::transform_to_vec([
-           (-1, -2),
-            (-1, 2),
-            (-2, -1),
-           (-2, 1),
-            (1, -2),
-            (1, 2),
-            (2, -1),
-            (2, 1),
-        ]),
-        King | Queen => RelativeBoardPos::transform_to_vec([
-        (-1, -1),
-        (1, 1),
-        (-1, 1),
-        (1, -1),
-        (-1, 0),
-        (1, 0),
-        (0, 1),
-        (0, -1),
-        ]),
+        Knight => RelativeBoardPos::transform_to_vec([(-1, -2), (-1, 2), (-2, -1), (-2, 1), (1, -2), (1, 2), (2, -1), (2, 1),]),
+        King | Queen => RelativeBoardPos::transform_to_vec([(-1, -1), (1, 1), (-1, 1), (1, -1), (-1, 0), (1, 0), (0, 1), (0, -1),]),
         Pawn => Vec::new(),
-    };
-    static ref PIECE_CHARS: EnumMap<PieceKind, char> = enum_map! {
-            King => 'k',
-            Queen => 'q',
-            Bishop => 'b',
-            Knight => 'n',
-            Rook => 'r',
-            Pawn => 'p',
-    };
-    static ref PIECE_ORD: EnumMap<PieceKind, u8> = enum_map! {
-            King => 1,
-            Queen => 2,
-            Bishop => 3,
-            Knight => 4,
-            Rook => 5,
-            Pawn => 6,
     };
     static ref U8_PIECE_MAP: [Option<PieceKind>; 7] = {
         let mut ret = [None; 7];
-        all::<PieceKind>().for_each(|k| ret[PIECE_ORD[k] as usize]=Some(k));
+        all::<PieceKind>().for_each(|k| ret[k.to_u8() as usize]=Some(k));
         ret
     };
 
@@ -135,7 +101,14 @@ impl PieceKind {
     /// Converts a piece type back to a character form usable for chess notation
     #[inline]
     pub fn to_char(self) -> char {
-        PIECE_CHARS[self]
+        match self {
+            King => 'k',
+            Queen => 'q',
+            Bishop => 'b',
+            Knight => 'n',
+            Rook => 'r',
+            Pawn => 'p',
+        }
     }
 
     /// Allows querying the kinds of moves we can make with a particular piece. Note pawn moves are handled differently as they depend on the colour and state of the pawn
@@ -151,7 +124,14 @@ impl PieceKind {
 
     #[inline]
     pub fn to_u8(self) -> u8 {
-        PIECE_ORD[self]
+        match self {
+            King => 1,
+            Queen => 2,
+            Bishop => 3,
+            Knight => 4,
+            Rook => 5,
+            Pawn => 6,
+        }
     }
 
     #[inline]
