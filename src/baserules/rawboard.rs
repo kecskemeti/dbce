@@ -54,6 +54,27 @@ impl RawBoard {
         RawBoard([0; 8])
     }
 
+    /// Determines what piece is at a particular location of the board
+    ///
+    /// # Example use:
+    /// ```
+    /// use dbce::baserules::piece_color::PieceColor::White;
+    /// use dbce::baserules::piece_kind::PieceKind::King;
+    /// use dbce::baserules::piece_state::PieceState;
+    /// use dbce::baserules::positions::AbsoluteBoardPos;
+    /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
+    ///
+    /// let board = RawBoard::default();
+    /// let king_pos:AbsoluteBoardPos = "e1".transform();
+    /// let king = board[king_pos];
+    /// assert_eq!(Some(PieceState { kind: King, color: White }),king)
+    /// ```
+    #[inline]
+    pub fn get_loc(&self, pos: AbsoluteBoardPos) -> &Option<PieceState> {
+        &self[pos]
+    }
+
     /// Allows write access to the raw board, transforms PieceState changes to the bit level representation of the board.
     ///
     /// # Example use:
@@ -148,6 +169,54 @@ impl RawBoard {
         } else {
             -MATE
         }
+    }
+
+    pub fn from_fen_prefix(fen: impl AsRef<str>) -> Self {
+        let mut new_board = RawBoard::empty();
+        let fen_part = fen.as_ref();
+        let mut row = 7;
+        let mut col = 0;
+        for piece_info in fen_part.chars() {
+            if piece_info.is_ascii_digit() {
+                col += piece_info as u8 - b'0';
+            } else if piece_info == '/' {
+                col = 0;
+                assert_ne!(row, 0, "Should not have more rows on the chessboard!");
+                row -= 1;
+            } else {
+                new_board.set_loc(
+                    (row, col).transform(),
+                    &Some(PieceState::from_char(piece_info)),
+                );
+                col += 1;
+            }
+        }
+        new_board
+    }
+
+    pub fn to_fen_prefix(&self) -> String {
+        let mut ret = String::new();
+        let mut since_piece: u8;
+        for row in (0..8u8).rev() {
+            since_piece = 0;
+            for col in 0..8 {
+                if let Some(ps) = self[(row, col)] {
+                    if since_piece != 0 {
+                        ret.push((since_piece + b'0') as char);
+                    }
+                    ret.push(format!("{ps}").pop().unwrap());
+                    since_piece = 0;
+                } else {
+                    since_piece += 1;
+                }
+            }
+            if since_piece != 0 {
+                ret.push((since_piece + b'0') as char);
+            }
+            ret.push('/');
+        }
+        ret.pop();
+        ret
     }
 }
 
