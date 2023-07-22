@@ -50,8 +50,8 @@ pub struct Engine {
 }
 
 #[async_trait]
-trait depths_board_count_maintanance<T> {
-    async fn best_move_for(&self, board_count: &FlushingCounterU32, depth: &AtomicU8) -> T;
+trait DepthsBoardCountMaintenance<T> {
+    async fn best_move_for(self, board_count: &FlushingCounterU32, depth: &AtomicU8) -> T;
 }
 
 struct SeqEngine(Engine);
@@ -59,12 +59,12 @@ struct ParEngine(Engine);
 
 #[async_trait]
 trait Explore {
-    async fn explore(&self, explore: ExplorationInput) -> ExplorationOutput;
+    async fn explore<'a>(&'a self, explore: ExplorationInput<'a>) -> ExplorationOutput;
 }
 
 #[async_trait]
 impl Explore for SeqEngine {
-    async fn explore(&self, mut a: ExplorationInput) -> ExplorationOutput {
+    async fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let who = a.start_board.who_moves;
         while let Some(curr_move) = a.moves.pop() {
             let board_with_move =
@@ -118,11 +118,10 @@ impl Explore for SeqEngine {
 
 #[async_trait]
 impl Explore for ParEngine {
-    async fn explore(&self, mut a: ExplorationInput) -> ExplorationOutput {
-        let who = a.start_board.who_moves;
+    async fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let (_, joins) = TokioScope::scope_and_block(|s| {
             let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
-
+            // copy
             while let Some(curr_move) = a.moves.pop() {
                 s.spawn(Self::abc(
                     a.thread_info.clone(),
@@ -136,7 +135,7 @@ impl Explore for ParEngine {
                 ));
             }
         });
-
+        let who = a.start_board.who_moves;
         for join in joins {
             let (curr_score, curr_move, timing_average, board_clone): (
                 f32,
@@ -213,24 +212,27 @@ pub struct ExplorationOutput {
     max_search: [f32; 4],
 }
 
+struct ExtEngine(Engine, Duration, BoardContinuation);
+
 // extend struct with engine state and deadline + impl trait for this struct
 #[async_trait]
-impl depths_board_count_maintanance<(Option<PossibleMove>, f32)> for Engine {
+impl DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine {
     async fn best_move_for(
-        &self,
+        mut self,
         board_count: &FlushingCounterU32,
         depth: &AtomicU8,
     ) -> (Option<PossibleMove>, f32) {
-        self.best_move_for_internal(
-            &mut state.worked_on_board,
-            deadline,
-            &self.par_explore(),
-            0,
-            board_count,
-            depth,
-            &mut EngineThread::from(self),
-        )
-        .await
+        self.0
+            .best_move_for_internal(
+                &mut self.2,
+                &self.1,
+                &self.0.par_explore(),
+                0,
+                board_count,
+                depth,
+                &mut EngineThread::from(&self.0),
+            )
+            .await
     }
 }
 
@@ -274,7 +276,7 @@ impl Engine {
         )
     }
 
-    async fn manage_counter<T>(to_count: &impl depths_board_count_maintanance<T>) -> (T, u32, u8) {
+    async fn manage_counter<T>(to_count: impl DepthsBoardCountMaintenance<T>) -> (T, u32, u8) {
         let board_counter = FlushingCounterU32::new(0);
         let maximum_depth = AtomicU8::new(0);
         let ret = to_count.best_move_for(&board_counter, &maximum_depth).await;
@@ -288,8 +290,12 @@ impl Engine {
         state: &mut GameState,
         deadline: &Duration,
     ) -> (Option<PossibleMove>, f32, u32, u8) {
-        let ((best_move, score), board_count, maximum) =
-            Self::manage_counter(|counter, maximum| {});
+        let ((best_move, score), board_count, maximum) = Self::manage_counter(ExtEngine(
+            self.clone(),
+            deadline.clone(),
+            state.worked_on_board.clone(),
+        ))
+        .await;
         // let timings = self.scoring_timings.lock().unwrap();
         // println!("Overall average now: {:?}", timings.calc_average());
         (best_move, score, board_count, maximum)
@@ -431,7 +437,13 @@ mod test {
     use crate::engine::{EngineThread, GameState};
     use crate::human_facing::helper;
     use crate::{baserules::board_rep::PossibleMove, engine::Engine};
+    use async_trait::async_trait;
+    use global_counter::primitive::fast::FlushingCounterU32;
+    use std::sync::atomic::AtomicU8;
     use tokio::test;
+
+    use super::continuation::BoardContinuation;
+    use super::DepthsBoardCountMaintenance;
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
@@ -440,18 +452,14 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        let result = Engine::manage_counter(|counter, maximum| {
-            engine.exploration(
-                moves,
-                &mut gamestate.worked_on_board,
-                Duration::from_millis(200),
-                Engine::parallel_exploration,
-                0,
-                counter,
-                maximum,
-                &mut thread_info,
-            )
-        });
+
+        let result = Engine::manage_counter(ExploreHelper(
+            engine.clone(),
+            moves,
+            gamestate.worked_on_board.clone(),
+            thread_info.clone(),
+        ))
+        .await;
         println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score < -4.0);
@@ -468,6 +476,26 @@ mod test {
         assert!(score < -6.0);
     }
 
+    struct ExploreHelper(Engine, Vec<PossibleMove>, BoardContinuation, EngineThread);
+
+    #[async_trait]
+    impl DepthsBoardCountMaintenance<()> for ExploreHelper {
+        async fn best_move_for(mut self, board_count: &FlushingCounterU32, depth: &AtomicU8) {
+            self.0
+                .exploration(
+                    self.1,
+                    &mut self.2,
+                    Duration::from_millis(500),
+                    &self.0.par_explore(),
+                    0,
+                    board_count,
+                    depth,
+                    &mut self.3,
+                )
+                .await
+        }
+    }
+
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test]
     async fn weird_eval_3() {
@@ -475,18 +503,13 @@ mod test {
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        let result = Engine::manage_counter(|counter, maximum| {
-            engine.exploration(
-                moves,
-                &mut gamestate.worked_on_board,
-                Duration::from_millis(100),
-                Engine::parallel_exploration,
-                0,
-                counter,
-                maximum,
-                &mut thread_info,
-            )
-        });
+        let result = Engine::manage_counter(ExploreHelper(
+            engine.clone(),
+            moves,
+            gamestate.worked_on_board.clone(),
+            thread_info.clone(),
+        ))
+        .await;
         println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score > 2.0);
@@ -499,18 +522,13 @@ mod test {
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
         let mut thread_info = EngineThread::from(&engine);
-        let result = Engine::manage_counter(|counter, maximum| {
-            engine.exploration(
-                moves,
-                &mut gamestate.worked_on_board,
-                Duration::from_secs(1),
-                Engine::parallel_exploration,
-                0,
-                counter,
-                maximum,
-                &mut thread_info,
-            )
-        });
+        let result = Engine::manage_counter(ExploreHelper(
+            engine.clone(),
+            moves,
+            gamestate.worked_on_board.clone(),
+            thread_info.clone(),
+        ))
+        .await;
         println!("Depth: {}", result.2);
         println!("{}", gamestate.worked_on_board.adjusted_score);
         assert!(gamestate.worked_on_board.adjusted_score < -5.0);
