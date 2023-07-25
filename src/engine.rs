@@ -41,7 +41,7 @@ use crate::engine::gamestate::GameState;
 use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
-use std::thread;
+
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -78,7 +78,7 @@ impl Explore for SeqEngine {
                     .0
                     .best_move_for_internal(
                         board_with_move,
-                        &a.single_move_deadline,
+                        a.single_move_deadline,
                         self,
                         a.curr_depth + 1,
                         a.counter,
@@ -127,7 +127,7 @@ impl Explore for ParEngine {
                     a.thread_info.clone(),
                     a.start_board.clone(),
                     self.0.clone(),
-                    &single_thread_deadline,
+                    single_thread_deadline,
                     curr_move,
                     a.counter,
                     a.maximum,
@@ -168,7 +168,7 @@ impl ParEngine {
         mut thread_info_clone: EngineThread,
         mut board_clone: BoardContinuation,
         engine_clone: Engine,
-        single_thread_deadline: &Duration,
+        single_thread_deadline: Duration,
         curr_move: PossibleMove,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
@@ -212,11 +212,10 @@ pub struct ExplorationOutput {
     max_search: [f32; 4],
 }
 
-struct ExtEngine(Engine, Duration, BoardContinuation);
+struct ExtEngine<'a>(Engine, Duration, &'a mut BoardContinuation);
 
-// extend struct with engine state and deadline + impl trait for this struct
 #[async_trait]
-impl DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine {
+impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<'a> {
     async fn best_move_for(
         mut self,
         board_count: &FlushingCounterU32,
@@ -224,8 +223,8 @@ impl DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine {
     ) -> (Option<PossibleMove>, f32) {
         self.0
             .best_move_for_internal(
-                &mut self.2,
-                &self.1,
+                self.2,
+                self.1,
                 &self.0.par_explore(),
                 0,
                 board_count,
@@ -293,7 +292,7 @@ impl Engine {
         let ((best_move, score), board_count, maximum) = Self::manage_counter(ExtEngine(
             self.clone(),
             deadline.clone(),
-            state.worked_on_board.clone(),
+            &mut state.worked_on_board,
         ))
         .await;
         // let timings = self.scoring_timings.lock().unwrap();
@@ -306,7 +305,7 @@ impl Engine {
     async fn best_move_for_internal(
         &self,
         start_board: &mut BoardContinuation,
-        deadline: &Duration,
+        deadline: Duration,
         exploration_method: &impl Explore,
         curr_depth: u8,
         counter: &FlushingCounterU32,
@@ -341,7 +340,8 @@ impl Engine {
                 counter,
                 maximum,
                 thread_info,
-            );
+            )
+            .await;
 
             let best_potential_board = start_board.values().max_by(|b1, b2| {
                 (mate_multiplier * b1.adjusted_score)
@@ -446,18 +446,17 @@ mod test {
     use super::DepthsBoardCountMaintenance;
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_1() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
-        let mut thread_info = EngineThread::from(&engine);
 
         let result = Engine::manage_counter(ExploreHelper(
             engine.clone(),
             moves,
-            gamestate.worked_on_board.clone(),
-            thread_info.clone(),
+            &mut gamestate.worked_on_board,
+            EngineThread::from(&engine),
         ))
         .await;
         println!("Depth: {}", result.2);
@@ -466,7 +465,7 @@ mod test {
     }
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_2() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
@@ -476,10 +475,15 @@ mod test {
         assert!(score < -6.0);
     }
 
-    struct ExploreHelper(Engine, Vec<PossibleMove>, BoardContinuation, EngineThread);
+    struct ExploreHelper<'a>(
+        Engine,
+        Vec<PossibleMove>,
+        &'a mut BoardContinuation,
+        EngineThread,
+    );
 
     #[async_trait]
-    impl DepthsBoardCountMaintenance<()> for ExploreHelper {
+    impl<'a> DepthsBoardCountMaintenance<()> for ExploreHelper<'a> {
         async fn best_move_for(mut self, board_count: &FlushingCounterU32, depth: &AtomicU8) {
             self.0
                 .exploration(
@@ -497,17 +501,17 @@ mod test {
     }
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_3() {
         let (engine, mut gamestate) =
             Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
-        let mut thread_info = EngineThread::from(&engine);
+
         let result = Engine::manage_counter(ExploreHelper(
             engine.clone(),
             moves,
-            gamestate.worked_on_board.clone(),
-            thread_info.clone(),
+            &mut gamestate.worked_on_board,
+            EngineThread::from(&engine),
         ))
         .await;
         println!("Depth: {}", result.2);
@@ -516,17 +520,17 @@ mod test {
     }
 
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_4() {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
-        let mut thread_info = EngineThread::from(&engine);
+
         let result = Engine::manage_counter(ExploreHelper(
             engine.clone(),
             moves,
-            gamestate.worked_on_board.clone(),
-            thread_info.clone(),
+            &mut gamestate.worked_on_board,
+            EngineThread::from(&engine),
         ))
         .await;
         println!("Depth: {}", result.2);
@@ -535,7 +539,7 @@ mod test {
     }
 
     /// Test for this game: https://lichess.org/ZnIAbaQXqHCF
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_4_1() {
         let (engine, mut gamestate) =
             Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
@@ -568,7 +572,7 @@ mod test {
     }
 
     /// Test for this game: https://lichess.org/5fa8V5PVXDEL
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn weird_eval_5() {
         let (engine, mut gamestate) =
             Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26");
@@ -622,7 +626,7 @@ mod test {
     }
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn failed_game_4() {
         let (engine, mut gamestate) = prep_failed_game_4().await;
         let (_, move_to_do) =
@@ -640,7 +644,7 @@ mod test {
     }
 
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn failed_game_4_subtest() {
         let (engine, mut gamestate) = prep_failed_game_4().await;
         helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_secs(1)).await;
@@ -652,7 +656,7 @@ mod test {
         assert!(moves.contains(&PossibleMove::simple_from_uci("f7d8").unwrap()));
     }
 
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn retain_boards() {
         let (engine, mut gamestate) = Engine::from_fen("8/8/8/8/6PP/6Pk/7P/7K w - - 0 1");
         let short_deadline = Duration::from_millis(1);
@@ -676,7 +680,7 @@ mod test {
     }
 
     /// Tests for this game: https://lichess.org/NPchEbrvI0qD
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn failed_game_1() {
         let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
         let (engine, mut gamestate) =
@@ -695,7 +699,7 @@ mod test {
     }
 
     /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn failed_game_2() {
         let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
         let (engine, mut gamestate) =
@@ -719,7 +723,7 @@ mod test {
 
     /// Tests for this game: https://lichess.org/9KuuHpmFX74q
     /// Ideally, this test should not have such a long deadline that we have now
-    #[test]
+    #[test(flavor = "multi_thread")]
     async fn failed_game_3() {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
