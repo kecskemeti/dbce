@@ -357,13 +357,15 @@ fn directional_mapper<F>(mapper: F) -> Vec<RelativeBoardPos>
 where
     F: Fn(i8) -> (i8, i8),
 {
-    RelativeBoardPos::transform_to_vec((1..7).map(mapper))
+    RelativeBoardPos::transform_to_vec((1..=7).map(mapper))
 }
 
 #[cfg(test)]
 mod test {
     use crate::baserules::board::PSBoard;
     use crate::baserules::board_rep::{BaseMove, PossibleMove};
+    use crate::baserules::piece_kind::PieceKind;
+    use std::collections::HashSet;
 
     use crate::util::TryWithPanic;
 
@@ -390,5 +392,30 @@ mod test {
         assert!(!moves
             .iter()
             .any(|a_move| unacceptable_moves.contains(a_move)));
+    }
+
+    #[test]
+    fn all_rook_moves() {
+        let board = PSBoard::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/2K5/7r/1R6 w - - 0 28").unwrap();
+        let mut moves = Vec::new();
+        PieceKind::Rook.gen_moves(&board, "b1".transform(), &mut moves);
+        let expected_moves: HashSet<String> = HashSet::from([
+            "b1a1".into(),
+            "b1c1".into(),
+            "b1d1".into(),
+            "b1e1".into(),
+            "b1f1".into(),
+            "b1g1".into(),
+            "b1h1".into(),
+            "b1b2".into(),
+            "b1b3".into(),
+            "b1b4".into(),
+            "b1b5".into(),
+            "b1b6".into(),
+            "b1b7".into(),
+            "b1b8".into(),
+        ]);
+        let found_moves: HashSet<_> = moves.iter().map(|amove| format!("{amove}")).collect();
+        assert_eq!(expected_moves, found_moves);
     }
 }

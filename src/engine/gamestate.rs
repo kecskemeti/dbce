@@ -4,7 +4,6 @@ use crate::engine::continuation::BoardContinuation;
 use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
 use crate::util::{EmptyResult, IntResult};
 use std::mem;
-use std::sync::Arc;
 
 pub struct GameState {
     pub(crate) worked_on_board: BoardContinuation,
@@ -33,12 +32,7 @@ impl GameState {
 
     #[inline]
     pub fn make_a_human_move_or_panic(&mut self, themove: &str) {
-        let board_copy = Arc::<PSBoard>::get_mut(&mut self.worked_on_board.board)
-            .unwrap()
-            .clone();
-
-        self.make_a_human_move(themove)
-            .unwrap_or_else(|_| panic!("{}", board_copy))
+        self.make_a_human_move(themove).unwrap()
     }
 
     #[inline]
