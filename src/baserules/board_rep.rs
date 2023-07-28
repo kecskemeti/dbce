@@ -100,22 +100,6 @@ pub struct PossibleMove {
 }
 
 impl PossibleMove {
-    /// Allows creating moves that does not involve pawn promotions or castling with a simple call
-    ///
-    /// # Example
-    /// ```
-    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
-    /// let uci = "e5e6";
-    /// let a_move = PossibleMove::simple_move(BaseMove::from_uci(uci).unwrap());
-    /// assert_eq!(uci, format!("{a_move}"));
-    /// ```
-    pub fn simple_move(base: BaseMove) -> Self {
-        Self {
-            the_move: base,
-            ..Default::default()
-        }
-    }
-
     /// Allows creating moves that does not involve pawn promotions or castling when an uci representation is available
     ///
     /// # Example
@@ -126,7 +110,26 @@ impl PossibleMove {
     /// assert_eq!(uci, format!("{a_move}"));
     /// ```
     pub fn simple_from_uci(uci: &str) -> IntResult<PossibleMove> {
-        Ok(PossibleMove::simple_move(BaseMove::from_uci(uci)?))
+        let base: BaseMove = uci.try_into()?;
+        Ok(base.into())
+    }
+}
+
+impl From<BaseMove> for PossibleMove {
+    /// Allows creating moves that does not involve pawn promotions or castling with a simple call
+    ///
+    /// # Example
+    /// ```
+    /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
+    /// let uci = "e5e6";
+    /// let a_move:PossibleMove = BaseMove::from_uci(uci).unwrap().into();
+    /// assert_eq!(uci, format!("{a_move}"));
+    /// ```
+    fn from(the_move: BaseMove) -> Self {
+        Self {
+            the_move,
+            ..Default::default()
+        }
     }
 }
 
@@ -158,6 +161,7 @@ impl Display for PossibleMove {
 #[cfg(test)]
 mod test {
     use crate::baserules::board_rep::{BaseMove, PossibleMove};
+    use crate::baserules::castling::Castling;
     use crate::baserules::piece_kind::PieceKind::Queen;
     use crate::baserules::positions::AbsoluteBoardPos;
 
@@ -181,11 +185,7 @@ mod test {
             rook: None,
         };
 
-        let black_short_castles = PossibleMove {
-            the_move: BaseMove::move_in_row(7, 3, 1),
-            pawn_promotion: None,
-            rook: Some(BaseMove::move_in_row(7, 0, 2)),
-        };
+        let black_short_castles: &PossibleMove = Castling::BlackKingSide.into();
         let knight_moves = PossibleMove {
             the_move: BaseMove {
                 from: AbsoluteBoardPos(7, 6),
@@ -195,7 +195,7 @@ mod test {
             rook: None,
         };
         assert_eq!("b2b1q", format!("{pawn_promote}"));
-        assert_eq!("d8b8", format!("{black_short_castles}"));
+        assert_eq!("e8g8", format!("{black_short_castles}"));
         assert_eq!("g8f6", format!("{knight_moves}"));
     }
 }

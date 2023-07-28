@@ -189,6 +189,7 @@ impl PieceColor {
         }
     }
 
+    #[inline]
     pub const fn worst_score(&self) -> f32 {
         match self {
             White => f32::NEG_INFINITY,

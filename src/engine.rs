@@ -68,7 +68,7 @@ impl Engine {
     }
 
     pub fn from_fen(fen: &str) -> (Self, GameState) {
-        Self::with_board_gen(|| PSBoard::from_fen(fen))
+        Self::with_board_gen(|| PSBoard::from_fen(fen).expect("Incorrect fen input"))
     }
 
     fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Self, GameState) {
@@ -609,7 +609,8 @@ mod test {
     /// Tests for this game: https://lichess.org/NPchEbrvI0qD
     #[test]
     async fn failed_game_1() {
-        let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26");
+        let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26")
+            .unwrap();
         let (engine, mut gamestate) =
             Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
 
@@ -628,7 +629,8 @@ mod test {
     /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
     #[test]
     async fn failed_game_2() {
-        let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14");
+        let board =
+            PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14").unwrap();
         let (engine, mut gamestate) =
             Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
 
@@ -654,7 +656,8 @@ mod test {
     async fn failed_game_3() {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
-        );
+        )
+        .unwrap();
         let (engine, mut gamestate) =
             Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
 

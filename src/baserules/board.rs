@@ -113,7 +113,7 @@ impl PSBoard {
     /// ```
     /// use dbce::baserules::board::PSBoard;
     /// use dbce::baserules::board_rep::{BaseMove, PossibleMove};
-    /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3");
+    /// let mut kings_knight_opening = PSBoard::from_fen("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3").unwrap();
     /// let bishop_moves = PossibleMove::simple_from_uci("f1b5").unwrap();
     /// let ruy_lopez = kings_knight_opening.make_move_noncached(&bishop_moves);
     /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
@@ -239,14 +239,16 @@ mod test {
     use crate::baserules::piece_color::PieceColor::White;
     use crate::baserules::piece_kind::PieceKind::{King, Queen, Rook};
     use crate::baserules::piece_state::PieceState;
+    use crate::util::TryWithPanic;
     use enumset::enum_set;
 
     #[test]
     fn check_castling_when_rook_taken() {
         let silly_white =
-            PSBoard::from_fen("rn1qkbnr/pbpppppp/1p6/8/5P2/3P2P1/PPP1P2P/RNBQKBNR b KQkq - 0 1");
-        let moving_piece = PieceState::from_char('b');
-        let captured_piece = Some(PieceState::from_char('R'));
+            PSBoard::from_fen("rn1qkbnr/pbpppppp/1p6/8/5P2/3P2P1/PPP1P2P/RNBQKBNR b KQkq - 0 1")
+                .unwrap();
+        let moving_piece = 'b'.transform();
+        let captured_piece = Some('R'.transform());
         let the_capture = PossibleMove::simple_from_uci("b7h1").unwrap();
         let (castling_result, _) =
             silly_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
@@ -256,9 +258,10 @@ mod test {
         );
 
         let crazy_white =
-            PSBoard::from_fen("rnbqkbnr/pp1ppppp/8/8/4P1P1/3P1P1P/PpP5/RNBQKBNR b KQkq - 0 1");
-        let moving_piece = PieceState::from_char('p');
-        let captured_piece = Some(PieceState::from_char('R'));
+            PSBoard::from_fen("rnbqkbnr/pp1ppppp/8/8/4P1P1/3P1P1P/PpP5/RNBQKBNR b KQkq - 0 1")
+                .unwrap();
+        let moving_piece = 'p'.transform();
+        let captured_piece = Some('R'.transform());
         let the_capture = PossibleMove {
             the_move: BaseMove::from_uci("b2a1").unwrap(),
             pawn_promotion: Some(Queen),
@@ -275,8 +278,9 @@ mod test {
     #[test]
     fn check_castling_when_rook_moves() {
         let casual_rook_black =
-            PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1");
-        let moving_piece = PieceState::from_char('r');
+            PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1")
+                .unwrap();
+        let moving_piece = 'r'.transform();
         let the_move = PossibleMove::simple_from_uci("a8a6").unwrap();
         let (castling_result, _) =
             casual_rook_black.determine_castling_rights(&moving_piece, &the_move, &None);
@@ -286,9 +290,10 @@ mod test {
         );
 
         let attacking_rook_black =
-            PSBoard::from_fen("rnbqkbnr/pppppp2/8/6P1/6p1/5P2/PPPPP3/RNBQKBNR b KQkq - 0 1");
-        let moving_piece = PieceState::from_char('r');
-        let captured_piece = Some(PieceState::from_char('R'));
+            PSBoard::from_fen("rnbqkbnr/pppppp2/8/6P1/6p1/5P2/PPPPP3/RNBQKBNR b KQkq - 0 1")
+                .unwrap();
+        let moving_piece = 'r'.transform();
+        let captured_piece = Some('R'.transform());
         let the_move = PossibleMove::simple_from_uci("h8h1").unwrap();
         let (castling_result, _) = attacking_rook_black.determine_castling_rights(
             &moving_piece,
@@ -301,8 +306,9 @@ mod test {
     #[test]
     fn check_castling_when_king_moves() {
         let bongcloud_opening_prep =
-            PSBoard::from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
-        let moving_piece = PieceState::from_char('K');
+            PSBoard::from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1")
+                .unwrap();
+        let moving_piece = 'K'.transform();
         let making_the_bongcloud = PossibleMove::simple_from_uci("e1e2").unwrap();
 
         let (castling_result, _) = bongcloud_opening_prep.determine_castling_rights(
@@ -316,7 +322,8 @@ mod test {
     #[test]
     fn move_castling() {
         let prep_for_castle =
-            PSBoard::from_fen("rnbqk2r/pppp1ppp/3bpn2/8/8/3BPN2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+            PSBoard::from_fen("rnbqk2r/pppp1ppp/3bpn2/8/8/3BPN2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+                .unwrap();
         let after_move = prep_for_castle.make_move_noncached(&PossibleMove {
             the_move: BaseMove::from_uci("e1g1").unwrap(),
             pawn_promotion: None,

@@ -41,7 +41,7 @@ fn accept_promotion(promote_kind: &Option<PieceKind>, candidate_move: &PossibleM
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
-pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<BoardContinuation> {
+pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<BoardContinuation> {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
     let mut col = Vec::new();
@@ -51,13 +51,13 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
         'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
             col.push(AbsoluteBoardPos::parse_column(first_char.try_into().unwrap()).unwrap())
         }
-        'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = PieceKind::from_char(first_char),
+        'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = first_char.try_into()?,
         'O' => castling = true,
         _ => panic!("Unexpected chess notation"),
     }
     let found_move = if castling {
         let castling_done = Castling::from_notation(the_move, board.who_moves).unwrap();
-        let castling_move: &'static PossibleMove = castling_done.into();
+        let castling_move: &PossibleMove = castling_done.into();
         Some(*castling_move)
     } else {
         let mut row = Vec::new();
@@ -79,7 +79,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
                         if promotion {
-                            promote_kind = Some(PieceKind::from_char(consecutive));
+                            promote_kind = Some(consecutive.try_into()?);
                         }
                     }
                     _ => panic!("Unexpected notation in second char"),
@@ -120,7 +120,9 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
                 && filter(&promote_kind, candidate_move)
         })
     };
-    found_move.map(|im| board.make_cached_move(&im))
+    found_move
+        .map(|im| board.make_cached_move(&im))
+        .ok_or_else(|| format!("Cannot understand move {the_move}").into())
 }
 
 /// Allows moves to be translated from lichess to our internal representation
@@ -133,7 +135,7 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Option<Boa
 /// use dbce::baserules::board::PSBoard;
 /// use dbce::engine::continuation::BoardContinuation;
 /// use dbce::human_facing::moves::make_an_uci_move;
-/// let opera_game = BoardContinuation::new(PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17"));
+/// let opera_game = BoardContinuation::new(PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17").unwrap());
 /// let opera_result = make_an_uci_move(opera_game, "d1d8").unwrap();
 /// assert_eq!("1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17", opera_result.to_fen());
 /// ```
@@ -143,7 +145,7 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
     let raw_move = the_move.as_bytes();
     let the_move = BaseMove::from_uci(the_move)?;
     let the_complete_move = if len == 5 {
-        let promote_kind = PieceKind::from_char(raw_move[4] as char);
+        let promote_kind = (raw_move[4] as char).try_into()?;
         PossibleMove {
             the_move,
             pawn_promotion: Some(promote_kind),
@@ -151,7 +153,7 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
         }
     } else {
         let moving_piece = board[the_move.from].as_ref().unwrap();
-        let simple_move = PossibleMove::simple_move(the_move);
+        let simple_move = the_move.into();
         if moving_piece.kind == King {
             board
                 .castling
@@ -173,10 +175,10 @@ mod test {
 
     #[test]
     fn test_rook_takes() {
-        let board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30");
+        let board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30").unwrap();
         let cont = BoardContinuation::new(board);
         let result = make_a_human_move(cont, "Rcxc8");
-        assert!(result.is_some());
+        assert!(result.is_ok());
         assert_eq!(
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
             result.unwrap().to_fen()
@@ -185,7 +187,8 @@ mod test {
 
     fn test_castle_base(premove: Option<&str>, uci: &str, exp_black: &str, exp_white: &str) {
         let board =
-            PSBoard::from_fen("r3k2r/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/R3K2R w KQkq - 2 9");
+            PSBoard::from_fen("r3k2r/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/R3K2R w KQkq - 2 9")
+                .unwrap();
         let mut cont = BoardContinuation::new(board);
         if let Some(white_move) = premove {
             let after_move = make_an_uci_move(cont, white_move);

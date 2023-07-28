@@ -25,6 +25,7 @@ use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
+use crate::util::{AnyError, IntResult};
 use lazy_static::lazy_static;
 use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -112,6 +113,17 @@ static ALL_POSSIBLE_PIECE_STATES: [Option<PieceState>; 15] = [
     }),
 ];
 
+static ALL_POSSIBLE_MASKS: [u32; 8] = [
+    0x0000_000F,
+    0x0000_00F0,
+    0x0000_0F00,
+    0x0000_F000,
+    0x000F_0000,
+    0x00F0_0000,
+    0x0F00_0000,
+    0xF000_0000,
+];
+
 lazy_static! {
     static ref REVERSE_POSSIBLE_PIECE_STATES: FxHashMap<&'static Option<PieceState>, usize> =
         ALL_POSSIBLE_PIECE_STATES
@@ -125,7 +137,6 @@ lazy_static! {
             .enumerate()
             .flat_map(shift)
             .collect();
-    static ref ALL_POSSIBLE_MASKS: [u32; (u32::BITS / 4) as usize] = generate_masks();
 }
 
 fn shift(
@@ -134,18 +145,9 @@ fn shift(
     (0..u32::BITS / 4).map(move |shift_amount| ((idx as u32) << (shift_amount * 4), ps))
 }
 
-fn generate_masks() -> [u32; (u32::BITS / 4) as usize] {
-    let mut mask_permutations = [0; (u32::BITS / 4) as usize];
+impl TryFrom<char> for PieceState {
+    type Error = AnyError;
 
-    for (index, shift) in (0..u32::BITS).step_by(4).enumerate() {
-        let n: u32 = 0xF << shift;
-        mask_permutations[index] = n;
-    }
-
-    mask_permutations
-}
-
-impl PieceState {
     /// Turns a single letter FEN notation to a piece state
     ///
     /// # Example:
@@ -153,20 +155,24 @@ impl PieceState {
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::piece_color::PieceColor::White;
     /// use dbce::baserules::piece_kind::PieceKind::King;
+    /// use dbce::util::TryWithPanic;
     /// let white_king = PieceState {color: White, kind: King };
-    /// assert_eq!(PieceState::from_char('K'),white_king);
+    /// let white_king_from_char:PieceState = 'K'.transform();
+    /// assert_eq!(white_king_from_char, white_king);
     /// ```
-    pub fn from_char(fen_piece: char) -> Self {
-        Self {
-            kind: PieceKind::from_char(fen_piece),
+    fn try_from(fen_piece: char) -> IntResult<Self> {
+        Ok(Self {
+            kind: fen_piece.try_into()?,
             color: if fen_piece.is_ascii_lowercase() {
                 Black
             } else {
                 White
             },
-        }
+        })
     }
+}
 
+impl PieceState {
     #[inline]
     pub fn pawn_promote(&self, kind: PieceKind) -> &'static Option<Self> {
         assert_eq!(self.kind, Pawn);
@@ -204,7 +210,7 @@ impl PieceState {
 mod test {
     use crate::baserules::piece_color::PieceColor::{Black, White};
     use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
-    use crate::baserules::piece_state::{generate_masks, PieceState};
+    use crate::baserules::piece_state::PieceState;
 
     #[test]
     fn lookup() {
@@ -256,17 +262,6 @@ mod test {
             color: Black,
         });
         assert_eq!(1 + 8, PieceState::bits(&black_king));
-    }
-
-    #[test]
-    pub fn test_mask_generator() {
-        // [0b1111, 0b11110000, 0b111100000000, 0b1111000000000000, ...];
-        let masks = generate_masks();
-        assert_eq!(masks[0], 0b1111);
-        assert_eq!(masks[1], 0b11110000);
-        assert_eq!(masks[2], 0b111100000000);
-        assert_eq!(masks[3], 0b1111000000000000);
-        assert_eq!(masks[7], 0b11110000000000000000000000000000);
     }
 
     #[test]

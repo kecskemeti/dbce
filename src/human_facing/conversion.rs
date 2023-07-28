@@ -28,13 +28,13 @@ use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind::*;
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::rawboard::RawBoard;
-use crate::util::TryWithPanic;
+use crate::util::{IntResult, TryWithPanic};
 use enumset::EnumSet;
 use std::fmt::{Display, Formatter};
 
 impl PieceState {
     pub fn from_unicode(unicode_char: char) -> PieceState {
-        PieceState::from_char(match unicode_char {
+        match unicode_char {
             '♔' => 'K',
             '♕' => 'Q',
             '♖' => 'R',
@@ -48,7 +48,8 @@ impl PieceState {
             '♞' => 'n',
             '♟' => 'p',
             _ => panic!("Unknown piece!"),
-        })
+        }
+        .transform()
     }
 
     pub fn to_unicode(&self) -> char {
@@ -79,7 +80,7 @@ impl Display for PSBoard {
     /// # Example:
     /// ```
     /// use dbce::baserules::board::PSBoard;
-    /// let immortal_game = PSBoard::from_fen("r1bk3r/p2pBpNp/n4n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 b - - 0 1");
+    /// let immortal_game = PSBoard::from_fen("r1bk3r/p2pBpNp/n4n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 b - - 0 1").unwrap();
     /// let formatted = format!("{immortal_game}");
     /// assert_eq!("Black to move, move 1\n  abcdefgh\n8 ♜-♝♚---♜ 8\n7 ♟--♟♗♟♘♟ 7\n6 ♞----♞-- 6\n5 -♟-♘♙--♙ 5\n4 ------♙- 4\n3 ---♙---- 3\n2 ♙-♙-♔--- 2\n1 ♛-----♝- 1\n  abcdefgh\n",formatted);
     /// ```
@@ -97,7 +98,7 @@ impl PSBoard {
     /// <https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation>
     /// # Panics
     /// When the input string is an incorrect fen
-    pub fn from_fen(fen: &str) -> Self {
+    pub fn from_fen(fen: &str) -> IntResult<Self> {
         let mut raw = RawBoard::empty();
         let mut next_move = None;
         let mut castling = EnumSet::empty();
@@ -106,7 +107,7 @@ impl PSBoard {
         let mut full: Option<u16> = None;
         for (idx, fen_part) in fen.split_whitespace().enumerate() {
             match idx {
-                0 => raw = RawBoard::from_fen_prefix(fen_part),
+                0 => raw = RawBoard::from_fen_prefix(fen_part)?,
 
                 1 => {
                     let deciphered_who_moves: PieceColor =
@@ -135,7 +136,7 @@ impl PSBoard {
                 _ => panic!("Too many fields in the FEN"),
             }
         }
-        PSBoard {
+        Ok(PSBoard {
             score: raw.score(),
             raw,
             who_moves: next_move.unwrap_or_else(|| panic!("Unspecified whose turn it is!")),
@@ -148,7 +149,7 @@ impl PSBoard {
             ep,
             move_count: full.unwrap_or_else(|| panic!("Unspecified move count")),
             half_moves_since_pawn: half.unwrap_or_else(|| panic!("Unspecified half move count")),
-        }
+        })
     }
 
     /// Allows exporting a `PSBoard` to fen for external analysis

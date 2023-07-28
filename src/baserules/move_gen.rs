@@ -166,7 +166,7 @@ impl PSBoard {
         // Move is on the board
         on_board_rule(self, loc) {
             // Move is allowed by the rule, we generate it
-            Some(PossibleMove::simple_move(BaseMove::from_two_pos(pos, loc)))
+            Some(BaseMove::from_two_pos(pos, loc).into())
         } else {
             None
         }
@@ -370,7 +370,8 @@ mod test {
     #[test]
     fn do_not_take_own_piece_to_castle() {
         let board =
-            PSBoard::from_fen("r1b1kbnr/pppn1ppp/4p3/7Q/4Pq2/8/PPPP1PPP/RNB1K1NR w KQkq - 2 5");
+            PSBoard::from_fen("r1b1kbnr/pppn1ppp/4p3/7Q/4Pq2/8/PPPP1PPP/RNB1K1NR w KQkq - 2 5")
+                .unwrap();
         let mut moves = Vec::new();
         board.gen_king_moves("e1".transform(), &mut moves);
         let unacceptable_moves = [

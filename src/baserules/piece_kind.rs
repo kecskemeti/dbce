@@ -23,6 +23,7 @@
 use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::positions::{AbsoluteBoardPos, RelativeBoardPos};
+use crate::util::{AnyError, IntResult};
 use enum_iterator::{all, Sequence};
 use enum_map::{enum_map, Enum, EnumMap};
 use lazy_static::lazy_static;
@@ -79,25 +80,17 @@ lazy_static! {
 
 }
 
-impl PieceKind {
-    /// Allows pieces to be determined based on uci and classical chess notation
-    /// # Panics
-    /// When we receive a character to translate that we cannot translate to the usual notation
-    ///
-    /// # Example
-    /// ```
-    /// use dbce::baserules::piece_kind::PieceKind;
-    /// let bishop_as_char = 'b';
-    /// let bishop = PieceKind::from_char(bishop_as_char);
-    /// assert_eq!(bishop_as_char, bishop.to_char());
-    /// ```
-    pub fn from_char(piece: char) -> PieceKind {
-        let idx: usize = (piece.to_ascii_lowercase() as i8 - b'b' as i8)
-            .try_into()
-            .unwrap_or_else(|_| panic!("Unmappable character received: {piece}"));
-        CHAR_PIECE_MAP[idx].expect("Unexpected chess piece type")
-    }
+impl TryFrom<char> for PieceKind {
+    type Error = AnyError;
 
+    fn try_from(piece: char) -> IntResult<Self> {
+        let idx: usize = (piece.to_ascii_lowercase() as i8 - b'b' as i8).try_into()?;
+        CHAR_PIECE_MAP[idx]
+            .ok_or_else(|| format!("Unexpected chess piece character {piece}").into())
+    }
+}
+
+impl PieceKind {
     /// Converts a piece type back to a character form usable for chess notation
     #[inline]
     pub fn to_char(self) -> char {

@@ -37,7 +37,7 @@ impl Castling {
         format!("{piece_rep}").chars().next().unwrap().try_into()
     }
     pub fn from_king_move(&self, king_move: BaseMove) -> Option<PossibleMove> {
-        let castling_move: &'static PossibleMove = (*self).into();
+        let castling_move: &PossibleMove = (*self).into();
         if king_move == castling_move.the_move {
             Some(*castling_move)
         } else {
@@ -71,7 +71,7 @@ lazy_static! {
     };
 }
 
-impl From<Castling> for &'static PossibleMove {
+impl From<Castling> for &PossibleMove {
     fn from(value: Castling) -> Self {
         &CASTLING_MOVE_MAP[value]
     }

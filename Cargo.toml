@@ -17,14 +17,13 @@ tokio = { version = "1.29.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["fs"] }
 tokio-util = { version = "0.7.8", features = ["full"] }
 futures-util = "0.3.28"
-serde_json = "1.0.102"
-ahash = "0.8.3"
+serde_json = "1.0.103"
 enum-map = "2.6.0"
 enumset = "1.1.2"
 rustc-hash = "1.1.0"
 enum-iterator = "1.4.1"
 global_counter = "0.2.2"
-sysinfo = "0.29.4"
+sysinfo = "0.29.5"
 rayon = "1.7"
 generational-arena = "0.2.9"
 itertools = "0.11.0"

@@ -27,9 +27,7 @@ impl GameState {
 
     #[inline]
     pub fn make_a_human_move(&mut self, themove: &str) -> EmptyResult {
-        self.replace_board_after_move(|old_board| {
-            make_a_human_move(old_board, themove).ok_or("Conversion error".into())
-        })
+        self.replace_board_after_move(|old_board| make_a_human_move(old_board, themove))
     }
 
     #[inline]

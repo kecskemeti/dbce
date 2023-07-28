@@ -26,7 +26,7 @@ use crate::baserules::piece_color::PieceColor::{Black, White};
 use crate::baserules::piece_kind::PieceKind::{Bishop, King, Knight, Pawn, Queen, Rook};
 use crate::baserules::piece_state::PieceState;
 use crate::baserules::positions::AbsoluteBoardPos;
-use crate::util::TryWithPanic;
+use crate::util::{IntResult, TryWithPanic};
 use lazy_static::lazy_static;
 use std::fmt::{Display, Formatter};
 use std::ops;
@@ -83,7 +83,7 @@ impl RawBoard {
     /// use dbce::baserules::rawboard::RawBoard;
     /// use dbce::util::TryWithPanic;
     /// let mut empty_board = RawBoard::empty();
-    /// let white_rook = Some(PieceState::from_char('R'));
+    /// let white_rook = Some('R'.transform());
     /// let a1 = "a1".transform();
     /// empty_board.set_loc(a1, &white_rook);
     /// assert_eq!(white_rook, empty_board[a1]);
@@ -128,7 +128,7 @@ impl RawBoard {
     /// ```
     /// use dbce::baserules::board::PSBoard;
     /// use dbce::baserules::rawboard::{MATE};
-    /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5");
+    /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5").unwrap();
     /// assert_eq!(MATE, scholars_mate.raw.score());
     /// ```
     pub fn score(&self) -> f32 {
@@ -171,7 +171,7 @@ impl RawBoard {
         }
     }
 
-    pub fn from_fen_prefix(fen: impl AsRef<str>) -> Self {
+    pub fn from_fen_prefix(fen: impl AsRef<str>) -> IntResult<Self> {
         let mut new_board = RawBoard::empty();
         let fen_part = fen.as_ref();
         let mut row = 7;
@@ -184,14 +184,11 @@ impl RawBoard {
                 assert_ne!(row, 0, "Should not have more rows on the chessboard!");
                 row -= 1;
             } else {
-                new_board.set_loc(
-                    (row, col).transform(),
-                    &Some(PieceState::from_char(piece_info)),
-                );
+                new_board.set_loc((row, col).transform(), &Some(piece_info.try_into()?));
                 col += 1;
             }
         }
-        new_board
+        Ok(new_board)
     }
 
     pub fn to_fen_prefix(&self) -> String {
@@ -263,8 +260,9 @@ impl Default for RawBoard {
     /// ```
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let starting_position = RawBoard::default();
-    /// assert_eq!(Some(PieceState::from_char('R')), starting_position[(0,0)]);
+    /// assert_eq!(Some('R'.transform()), starting_position[(0,0)]);
     /// assert_eq!(None, starting_position[(3,0)]);
     /// ```
     fn default() -> Self {
@@ -323,9 +321,10 @@ impl ops::Index<AbsoluteBoardPos> for RawBoard {
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::positions::AbsoluteBoardPos;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let starting_position = RawBoard::default();
     /// let black_king = starting_position[AbsoluteBoardPos(0,4)];
-    /// assert_eq!(Some(PieceState::from_char('K')),black_king);
+    /// assert_eq!(Some('K'.transform()),black_king);
     /// ```
     #[inline]
     fn index(&self, AbsoluteBoardPos(row, col): AbsoluteBoardPos) -> &Self::Output {
@@ -343,9 +342,10 @@ impl ops::Index<&str> for RawBoard {
     /// use std::str::FromStr;
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let starting_position = RawBoard::default();
     /// let black_king = starting_position["e8"];
-    /// assert_eq!(Some(PieceState::from_char('k')),black_king);
+    /// assert_eq!(Some('k'.transform()),black_king);
     /// ```
     #[inline]
     fn index(&self, uci: &str) -> &Self::Output {
@@ -364,9 +364,10 @@ impl ops::Index<(u8, u8)> for RawBoard {
     /// use std::str::FromStr;
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let starting_position = RawBoard::default();
     /// let black_king = starting_position[(0,0)];
-    /// assert_eq!(Some(PieceState::from_char('R')),black_king);
+    /// assert_eq!(Some('R'.transform()),black_king);
     /// ```
     #[inline]
     fn index(&self, raw_pos: (u8, u8)) -> &Self::Output {
@@ -384,8 +385,9 @@ impl<'a> IntoIterator for &'a RawBoard {
     /// ```
     /// use dbce::baserules::piece_state::PieceState;
     /// use dbce::baserules::rawboard::RawBoard;
+    /// use dbce::util::TryWithPanic;
     /// let starting_position = RawBoard::default();
-    /// let black_bishop = Some(PieceState::from_char('b'));
+    /// let black_bishop = Some('b'.transform());
     /// assert!(starting_position.into_iter().any(|ps| ps==&black_bishop));
     /// ```
     #[inline]
