@@ -41,12 +41,16 @@ use crate::engine::gamestate::GameState;
 use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
+use tokio::spawn;
+use tokio::sync::RwLock;
+use tokio::time::sleep;
 
 use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Engine {
     scoring_timings: Arc<Mutex<DurationAverage>>,
+    exploration_allowed: Arc<RwLock<bool>>,
 }
 
 #[async_trait]
@@ -70,43 +74,42 @@ impl Explore for SeqEngine {
             let board_with_move =
                 a.thread_info
                     .timing_remembering_move(a.start_board, &curr_move, a.counter);
-            let average_scoring_duration = a.thread_info.0.calc_average() * 40;
-            let curr_score = if !is_mate(board_with_move.score)
-                && (average_scoring_duration < a.single_move_deadline)
-            {
-                let (_, best_score) = self
-                    .0
-                    .best_move_for_internal(
-                        board_with_move,
-                        a.single_move_deadline,
-                        self,
-                        a.curr_depth + 1,
-                        a.counter,
-                        a.maximum,
-                        a.thread_info,
-                    )
-                    .await;
-                best_score
-            } else {
-                let mut val_before = a.maximum.load(Acquire);
-                loop {
-                    let cur_max = a.maximum.fetch_max(a.curr_depth, Acquire);
-                    if cur_max == a.curr_depth {
-                        let res = a
-                            .maximum
-                            .compare_exchange(val_before, cur_max, Acquire, Acquire);
+            tokio::task::yield_now().await;
+            let explore_allowed = { self.0.exploration_allowed.read().await.clone() };
+            let curr_score =
+                if !is_mate(board_with_move.score) && explore_allowed && a.curr_depth < 10 {
+                    let (_, best_score) = self
+                        .0
+                        .best_move_for_internal(
+                            board_with_move,
+                            self,
+                            a.curr_depth + 1,
+                            a.counter,
+                            a.maximum,
+                            a.thread_info,
+                        )
+                        .await;
+                    best_score
+                } else {
+                    let mut val_before = a.maximum.load(Acquire);
+                    loop {
+                        let cur_max = a.maximum.fetch_max(a.curr_depth, Acquire);
+                        if cur_max == a.curr_depth {
+                            let res = a
+                                .maximum
+                                .compare_exchange(val_before, cur_max, Acquire, Acquire);
 
-                        if let Err(err) = res {
-                            val_before = err;
+                            if let Err(err) = res {
+                                val_before = err;
+                            } else {
+                                break;
+                            }
                         } else {
                             break;
                         }
-                    } else {
-                        break;
                     }
-                }
-                board_with_move.score
-            };
+                    board_with_move.score
+                };
 
             Engine::update_max_search(who, &mut a.max_search, curr_score);
         }
@@ -120,14 +123,12 @@ impl Explore for SeqEngine {
 impl Explore for ParEngine {
     async fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let (_, joins) = TokioScope::scope_and_block(|s| {
-            let single_thread_deadline = a.single_move_deadline * (a.moves.len() as u32);
             // copy
             while let Some(curr_move) = a.moves.pop() {
                 s.spawn(Self::abc(
                     a.thread_info.clone(),
                     a.start_board.clone(),
                     self.0.clone(),
-                    single_thread_deadline,
                     curr_move,
                     a.counter,
                     a.maximum,
@@ -168,7 +169,6 @@ impl ParEngine {
         mut thread_info_clone: EngineThread,
         mut board_clone: BoardContinuation,
         engine_clone: Engine,
-        single_thread_deadline: Duration,
         curr_move: PossibleMove,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
@@ -179,7 +179,6 @@ impl ParEngine {
         let (_, curr_score) = engine_clone
             .best_move_for_internal(
                 board_with_move,
-                single_thread_deadline,
                 &engine_clone.seq_explore(),
                 curr_depth + 1,
                 counter,
@@ -200,7 +199,6 @@ impl ParEngine {
 pub struct ExplorationInput<'a> {
     moves: Vec<PossibleMove>,
     start_board: &'a mut BoardContinuation,
-    single_move_deadline: Duration,
     curr_depth: u8,
     max_search: [f32; 4],
     counter: &'a FlushingCounterU32,
@@ -212,7 +210,7 @@ pub struct ExplorationOutput {
     max_search: [f32; 4],
 }
 
-struct ExtEngine<'a>(Engine, Duration, &'a mut BoardContinuation);
+struct ExtEngine<'a>(Engine, &'a mut BoardContinuation);
 
 #[async_trait]
 impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<'a> {
@@ -223,7 +221,6 @@ impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<
     ) -> (Option<PossibleMove>, f32) {
         self.0
             .best_move_for_internal(
-                self.2,
                 self.1,
                 &self.0.par_explore(),
                 0,
@@ -238,6 +235,12 @@ impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<
 impl Engine {
     pub fn new() -> (Self, GameState) {
         Self::with_board_gen(PSBoard::default)
+    }
+
+    async fn time_up(&self, duration: Duration) {
+        sleep(duration).await;
+        let mut guard = self.exploration_allowed.write().await;
+        *guard = false;
     }
 
     pub fn from_fen(fen: &str) -> (Self, GameState) {
@@ -268,6 +271,7 @@ impl Engine {
         (
             Self {
                 scoring_timings: Arc::new(Mutex::new(scoring_timings)),
+                exploration_allowed: Arc::new(RwLock::new(true)),
             },
             GameState {
                 worked_on_board: BoardContinuation::new(initial_board_provider()),
@@ -287,16 +291,15 @@ impl Engine {
     pub async fn best_move_for(
         &self,
         state: &mut GameState,
-        deadline: &Duration,
+        duration: &Duration,
     ) -> (Option<PossibleMove>, f32, u32, u8) {
-        let ((best_move, score), board_count, maximum) = Self::manage_counter(ExtEngine(
-            self.clone(),
-            deadline.clone(),
-            &mut state.worked_on_board,
-        ))
-        .await;
-        // let timings = self.scoring_timings.lock().unwrap();
-        // println!("Overall average now: {:?}", timings.calc_average());
+        let engine_clone = self.clone();
+        let duration_clone = duration.clone();
+
+        spawn(async move { engine_clone.time_up(duration_clone).await });
+        let ((best_move, score), board_count, maximum) =
+            Self::manage_counter(ExtEngine(self.clone(), &mut state.worked_on_board)).await;
+
         (best_move, score, board_count, maximum)
     }
 
@@ -305,7 +308,6 @@ impl Engine {
     async fn best_move_for_internal(
         &self,
         start_board: &mut BoardContinuation,
-        deadline: Duration,
         exploration_method: &impl Explore,
         curr_depth: u8,
         counter: &FlushingCounterU32,
@@ -318,23 +320,12 @@ impl Engine {
         if !is_mate(start_board.score) {
             let mut moves = Vec::new();
             start_board.gen_potential_moves(&mut moves);
-            let movecount = moves.len();
+
             //println!("Potential moves: {:?}", moves);
-            let single_move_deadline = deadline
-                .checked_div(movecount as u32)
-                .expect("Could not generate a single move!!!");
-            // let width = curr_depth as usize;
-            // println!(
-            //     "{:3?} {:width$}Single move deadline: {:?}",
-            //     thread::current().id(),
-            //     "",
-            //     single_move_deadline
-            // );
 
             self.exploration(
                 moves,
                 start_board,
-                single_move_deadline,
                 exploration_method,
                 curr_depth,
                 counter,
@@ -385,7 +376,6 @@ impl Engine {
         &self,
         moves: Vec<PossibleMove>,
         start_board: &mut BoardContinuation,
-        single_move_deadline: Duration,
         exploration_helper: &impl Explore,
         curr_depth: u8,
         counter: &FlushingCounterU32,
@@ -400,7 +390,7 @@ impl Engine {
             .explore(ExplorationInput {
                 moves,
                 start_board,
-                single_move_deadline,
+
                 curr_depth,
                 max_search,
                 counter,
@@ -433,6 +423,8 @@ impl Engine {
 mod test {
     use std::time::Duration;
 
+    use super::continuation::BoardContinuation;
+    use super::DepthsBoardCountMaintenance;
     use crate::baserules::board::PSBoard;
     use crate::engine::{EngineThread, GameState};
     use crate::human_facing::helper;
@@ -440,10 +432,8 @@ mod test {
     use async_trait::async_trait;
     use global_counter::primitive::fast::FlushingCounterU32;
     use std::sync::atomic::AtomicU8;
+    use tokio::spawn;
     use tokio::test;
-
-    use super::continuation::BoardContinuation;
-    use super::DepthsBoardCountMaintenance;
 
     /// Test for this game: https://lichess.org/dRlJX08zhn1L
     #[test(flavor = "multi_thread")]
@@ -485,11 +475,13 @@ mod test {
     #[async_trait]
     impl<'a> DepthsBoardCountMaintenance<()> for ExploreHelper<'a> {
         async fn best_move_for(mut self, board_count: &FlushingCounterU32, depth: &AtomicU8) {
+            let engine_clone = self.0.clone();
+
+            spawn(async move { engine_clone.time_up(Duration::from_millis(500)).await });
             self.0
                 .exploration(
                     self.1,
                     &mut self.2,
-                    Duration::from_millis(500),
                     &self.0.par_explore(),
                     0,
                     board_count,
