@@ -42,7 +42,7 @@ use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
 use tokio::spawn;
-use tokio::sync::RwLock;
+use tokio::sync::{Barrier, RwLock};
 use tokio::time::sleep;
 
 use std::time::Duration;
@@ -74,6 +74,7 @@ impl Explore for SeqEngine {
             let board_with_move =
                 a.thread_info
                     .timing_remembering_move(a.start_board, &curr_move, a.counter);
+            // wait for barrier completion instead of yield
             tokio::task::yield_now().await;
             let explore_allowed = { self.0.exploration_allowed.read().await.clone() };
             let curr_score =
@@ -124,6 +125,10 @@ impl Explore for ParEngine {
     async fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let (_, joins) = TokioScope::scope_and_block(|s| {
             // copy
+            let task_size = a.moves.len();
+
+            let barrier = Arc::new(Barrier::new(task_size));
+
             while let Some(curr_move) = a.moves.pop() {
                 s.spawn(Self::abc(
                     a.thread_info.clone(),

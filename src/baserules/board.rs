@@ -58,6 +58,7 @@ pub struct PSBoard {
     pub score: f32,
 }
 
+//rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
 impl Deref for PSBoard {
     type Target = RawBoard;
 
