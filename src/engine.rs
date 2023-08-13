@@ -42,7 +42,7 @@ use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
 use tokio::spawn;
-use tokio::sync::{Barrier, RwLock};
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use std::time::Duration;
@@ -51,6 +51,7 @@ use std::time::Duration;
 pub struct Engine {
     scoring_timings: Arc<Mutex<DurationAverage>>,
     exploration_allowed: Arc<RwLock<bool>>,
+    thread_counter: Arc<AtomicU8>,
 }
 
 #[async_trait]
@@ -62,7 +63,7 @@ struct SeqEngine(Engine);
 struct ParEngine(Engine);
 
 #[async_trait]
-trait Explore {
+trait Explore: Send + Sync {
     async fn explore<'a>(&'a self, explore: ExplorationInput<'a>) -> ExplorationOutput;
 }
 
@@ -83,7 +84,6 @@ impl Explore for SeqEngine {
                         .0
                         .best_move_for_internal(
                             board_with_move,
-                            self,
                             a.curr_depth + 1,
                             a.counter,
                             a.maximum,
@@ -125,9 +125,6 @@ impl Explore for ParEngine {
     async fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let (_, joins) = TokioScope::scope_and_block(|s| {
             // copy
-            let task_size = a.moves.len();
-
-            let barrier = Arc::new(Barrier::new(task_size));
 
             while let Some(curr_move) = a.moves.pop() {
                 s.spawn(Self::abc(
@@ -179,12 +176,15 @@ impl ParEngine {
         maximum: &AtomicU8,
         curr_depth: u8,
     ) -> (f32, PossibleMove, Duration, BoardContinuation) {
+        let prev = engine_clone.thread_counter.fetch_add(1, Acquire);
+        if prev > 150 {
+            panic!("out of control!");
+        }
         let board_with_move =
             thread_info_clone.timing_remembering_move(&mut board_clone, &curr_move, counter);
         let (_, curr_score) = engine_clone
             .best_move_for_internal(
                 board_with_move,
-                &engine_clone.seq_explore(),
                 curr_depth + 1,
                 counter,
                 maximum,
@@ -192,6 +192,7 @@ impl ParEngine {
             )
             .await;
         counter.flush();
+        engine_clone.thread_counter.fetch_sub(1, Acquire);
         (
             curr_score,
             curr_move,
@@ -227,7 +228,6 @@ impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<
         self.0
             .best_move_for_internal(
                 self.1,
-                &self.0.par_explore(),
                 0,
                 board_count,
                 depth,
@@ -277,6 +277,7 @@ impl Engine {
             Self {
                 scoring_timings: Arc::new(Mutex::new(scoring_timings)),
                 exploration_allowed: Arc::new(RwLock::new(true)),
+                thread_counter: Arc::new(AtomicU8::new(0)),
             },
             GameState {
                 worked_on_board: BoardContinuation::new(initial_board_provider()),
@@ -313,7 +314,6 @@ impl Engine {
     async fn best_move_for_internal(
         &self,
         start_board: &mut BoardContinuation,
-        exploration_method: &impl Explore,
         curr_depth: u8,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
@@ -327,6 +327,11 @@ impl Engine {
             start_board.gen_potential_moves(&mut moves);
 
             //println!("Potential moves: {:?}", moves);
+            let exploration_method: Box<dyn Explore> = if self.thread_counter.load(Acquire) < 5 {
+                Box::new(self.par_explore())
+            } else {
+                Box::new(self.seq_explore())
+            };
 
             self.exploration(
                 moves,
@@ -381,7 +386,7 @@ impl Engine {
         &self,
         moves: Vec<PossibleMove>,
         start_board: &mut BoardContinuation,
-        exploration_helper: &impl Explore,
+        exploration_helper: Box<dyn Explore>,
         curr_depth: u8,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
@@ -487,7 +492,7 @@ mod test {
                 .exploration(
                     self.1,
                     &mut self.2,
-                    &self.0.par_explore(),
+                    Box::new(self.0.par_explore()),
                     0,
                     board_count,
                     depth,
