@@ -432,7 +432,9 @@ impl<'a> ExactSizeIterator for RawBoardIterator<'a> {}
 
 #[cfg(test)]
 mod test {
-    use crate::baserules::board::PSBoard;
+    use crate::baserules::piece_color::PieceColor::Black;
+    use crate::baserules::rawboard::MATE;
+    use crate::baserules::{board::PSBoard, board_rep::BaseMove};
 
     #[test]
     fn iterator_test() {
@@ -441,5 +443,26 @@ mod test {
         assert_eq!(&psboard["a1"], iter.next().unwrap());
         let mut iter = psboard.raw.into_iter();
         assert_eq!(&psboard["d8"], iter.nth(8 * 7 + 3).unwrap());
+    }
+
+    #[test]
+    fn test_mate() {
+        let board: PSBoard =
+            PSBoard::from_fen("rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
+                .unwrap();
+
+        let score = board.score();
+        let piece_move: BaseMove = "b1c3".try_into().unwrap();
+        let impossible_board = board.make_move_noncached(&piece_move.into());
+
+        let piece_move_impossible: BaseMove = "h4e1".try_into().unwrap();
+        let mate_board = impossible_board.make_move_noncached(&piece_move_impossible.into());
+
+        let mate_score = mate_board.score();
+        assert_eq!(
+            mate_score,
+            impossible_board.who_moves.mate_multiplier() * MATE
+        );
+        assert_eq!(score, 0.0);
     }
 }
