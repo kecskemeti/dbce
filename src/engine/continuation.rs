@@ -3,6 +3,7 @@ use crate::baserules::board_rep::PossibleMove;
 use rand::{thread_rng, Rng};
 
 use generational_arena::Arena;
+use global_counter::primitive::fast::FlushingCounterU32;
 use itertools::Itertools;
 use std::{ops::Deref, sync::Arc};
 
@@ -66,6 +67,21 @@ impl BoardContinuation {
             cont
         } else {
             Self::new(self.make_move_noncached(the_move))
+        }
+    }
+
+    pub fn lookup_continuation_or_create<'a>(
+        &'a mut self,
+        amove: &PossibleMove,
+        counter: &FlushingCounterU32,
+    ) -> &'a mut Self {
+        if self.continuation_exists(amove) {
+            self.find_continuation_mut(amove).unwrap()
+        } else {
+            counter.inc();
+            let psb = self.make_move_noncached(amove);
+            self.insert_psboard(amove, psb);
+            self.find_continuation_mut(amove).unwrap()
         }
     }
 

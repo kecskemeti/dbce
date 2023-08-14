@@ -432,7 +432,6 @@ impl<'a> ExactSizeIterator for RawBoardIterator<'a> {}
 
 #[cfg(test)]
 mod test {
-    use crate::baserules::piece_color::PieceColor::Black;
     use crate::baserules::rawboard::MATE;
     use crate::baserules::{board::PSBoard, board_rep::BaseMove};
 
