@@ -28,8 +28,8 @@ use crate::baserules::board_rep::PossibleMove;
 use crate::baserules::piece_color::PieceColor;
 use std::cmp::Ordering;
 use std::ptr;
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering::{Acquire, Release};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::Arc;
 
 use crate::baserules::rawboard::is_mate;
@@ -39,14 +39,15 @@ use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
 use tokio::spawn;
-use tokio::sync::RwLock;
 
 use std::time::Duration;
+use tokio::task::yield_now;
 use tokio::time::sleep;
 
 #[derive(Clone)]
 pub struct Engine {
-    exploration_allowed: Arc<RwLock<bool>>,
+    exploration_allowed: Arc<AtomicBool>,
+    enable_parallel: Arc<AtomicBool>,
     thread_counter: Arc<AtomicU8>,
 }
 
@@ -71,8 +72,8 @@ impl Explore for SeqEngine {
             let board_with_move = a
                 .start_board
                 .lookup_continuation_or_create(&curr_move, a.counter);
-            tokio::task::yield_now().await;
-            let explore_allowed = { *self.0.exploration_allowed.read().await };
+            yield_now().await;
+            let explore_allowed = self.0.exploration_allowed.load(Relaxed);
             let curr_score = if !is_mate(board_with_move.score)
                 && explore_allowed
                 && a.curr_depth < 10
@@ -83,13 +84,13 @@ impl Explore for SeqEngine {
                     .await;
                 best_score
             } else {
-                let mut val_before = a.maximum.load(Acquire);
+                let mut val_before = a.maximum.load(Relaxed);
                 loop {
-                    let cur_max = a.maximum.fetch_max(a.curr_depth, Acquire);
+                    let cur_max = a.maximum.fetch_max(a.curr_depth, Relaxed);
                     if cur_max == a.curr_depth {
                         let res = a
                             .maximum
-                            .compare_exchange(val_before, cur_max, Acquire, Acquire);
+                            .compare_exchange(val_before, cur_max, Relaxed, Relaxed);
 
                         if let Err(err) = res {
                             val_before = err;
@@ -157,16 +158,13 @@ impl ParEngine {
         maximum: &AtomicU8,
         curr_depth: u8,
     ) -> (f32, PossibleMove, BoardContinuation) {
-        let prev = engine_clone.thread_counter.fetch_add(1, Acquire);
-        if prev > 250 {
-            panic!("out of control!");
-        }
+        engine_clone.thread_counter.fetch_add(1, Relaxed);
         let board_with_move = board_clone.lookup_continuation_or_create(&curr_move, counter);
         let (_, curr_score) = engine_clone
             .best_move_for_internal(board_with_move, curr_depth + 1, counter, maximum)
             .await;
         counter.flush();
-        engine_clone.thread_counter.fetch_sub(1, Acquire);
+        engine_clone.thread_counter.fetch_sub(1, Relaxed);
         (curr_score, curr_move, board_clone)
     }
 }
@@ -206,8 +204,7 @@ impl Engine {
 
     async fn time_up(&self, duration: Duration) {
         sleep(duration).await;
-        let mut guard = self.exploration_allowed.write().await;
-        *guard = false;
+        self.exploration_allowed.store(false, Relaxed);
     }
 
     pub fn from_fen(fen: &str) -> (Self, GameState) {
@@ -225,7 +222,8 @@ impl Engine {
     fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Self, GameState) {
         (
             Self {
-                exploration_allowed: Arc::new(RwLock::new(true)),
+                enable_parallel: Arc::new(AtomicBool::new(true)),
+                exploration_allowed: Arc::new(AtomicBool::new(true)),
                 thread_counter: Arc::new(AtomicU8::new(0)),
             },
             GameState {
@@ -239,20 +237,17 @@ impl Engine {
         let maximum_depth = AtomicU8::new(0);
         let ret = to_count.best_move_for(&board_counter, &maximum_depth).await;
         board_counter.flush();
-        (ret, board_counter.get(), maximum_depth.load(Acquire))
+        (ret, board_counter.get(), maximum_depth.load(Relaxed))
     }
 
-    // board count send instead of lock
     pub async fn best_move_for(
         &self,
         state: &mut GameState,
         duration: &Duration,
     ) -> (Option<PossibleMove>, f32, u32, u8) {
-        self.thread_counter.store(0, Release);
-        {
-            let mut allow_expore = self.exploration_allowed.write().await;
-            *allow_expore = true;
-        }
+        self.thread_counter.store(0, Relaxed);
+        self.exploration_allowed.store(true, Relaxed);
+        self.enable_parallel.store(true, Relaxed);
         let engine_clone = self.clone();
         let duration_clone = *duration;
 
@@ -263,8 +258,6 @@ impl Engine {
         (best_move, score, board_count, maximum)
     }
 
-    // Determines the best move on the depth asked for
-    // If the decide flag is passed, we will have the move generated, otherwise we just use this method for scoring
     async fn best_move_for_internal(
         &self,
         start_board: &mut BoardContinuation,
@@ -278,13 +271,18 @@ impl Engine {
         if !is_mate(start_board.score) {
             let mut moves = Vec::new();
             start_board.gen_potential_moves(&mut moves);
+            let enable_parallel = self
+                .enable_parallel
+                .compare_exchange_weak(true, false, Relaxed, Relaxed)
+                .is_ok();
 
             //println!("Potential moves: {:?}", moves);
-            let exploration_method: Box<dyn Explore> = if self.thread_counter.load(Acquire) < 5 {
-                Box::new(self.par_explore())
-            } else {
-                Box::new(self.seq_explore())
-            };
+            let exploration_method: Box<dyn Explore> =
+                if enable_parallel && self.thread_counter.load(Relaxed) < 25 {
+                    Box::new(self.par_explore())
+                } else {
+                    Box::new(self.seq_explore())
+                };
 
             self.exploration(
                 moves,
@@ -295,6 +293,10 @@ impl Engine {
                 maximum,
             )
             .await;
+
+            if enable_parallel {
+                self.enable_parallel.store(true, Relaxed);
+            }
 
             let best_potential_board = start_board.values().max_by(|b1, b2| {
                 (mate_multiplier * b1.adjusted_score)
