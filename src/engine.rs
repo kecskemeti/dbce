@@ -39,6 +39,7 @@ use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
 use tokio::spawn;
+use tokio::sync::Mutex;
 
 use std::time::Duration;
 use tokio::task::yield_now;
@@ -226,9 +227,7 @@ impl Engine {
                 exploration_allowed: Arc::new(AtomicBool::new(true)),
                 thread_counter: Arc::new(AtomicU8::new(0)),
             },
-            GameState {
-                worked_on_board: BoardContinuation::new(initial_board_provider()),
-            },
+            GameState::new(initial_board_provider()),
         )
     }
 
@@ -502,9 +501,9 @@ mod test {
     }
 
     impl GameState {
-        fn make_a_move_pair(&mut self, engine_move: &str, opponent_move: &str) {
-            self.make_a_human_move_or_panic(engine_move);
-            self.make_a_human_move_or_panic(opponent_move);
+        async fn make_a_move_pair(&mut self, engine_move: &str, opponent_move: &str) {
+            self.make_a_human_move_or_panic(engine_move).await;
+            self.make_a_human_move_or_panic(opponent_move).await;
         }
     }
 
@@ -517,7 +516,7 @@ mod test {
             opponent_move: &str,
         ) {
             helper::calculate_move_for_console(self, gamestate, deadline).await;
-            gamestate.make_a_move_pair(engine_move, opponent_move);
+            gamestate.make_a_move_pair(engine_move, opponent_move).await;
         }
     }
 
@@ -602,7 +601,7 @@ mod test {
         let (engine, mut gamestate) = prep_failed_game_4().await;
         helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(200))
             .await;
-        gamestate.make_a_human_move_or_panic("cxb2");
+        gamestate.make_a_human_move_or_panic("cxb2").await;
         let the_board = gamestate.continuation().clone();
         let mut moves = Vec::new();
         the_board.gen_potential_moves(&mut moves);
@@ -624,7 +623,7 @@ mod test {
             .find_continuation(&a_selected_move)
             .unwrap();
         let continuations_before = the_selected_board.total_continuation_boards();
-        gamestate.make_a_generated_move(&a_selected_move);
+        gamestate.make_a_generated_move(&a_selected_move).await;
         let (_, _, board_count, depth) =
             engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
@@ -641,7 +640,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
 
-        gamestate.make_a_human_move("Rc1+").unwrap();
+        gamestate.make_a_human_move("Rc1+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -661,7 +660,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
 
-        gamestate.make_a_human_move("Qxf6+").unwrap();
+        gamestate.make_a_human_move("Qxf6+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -688,7 +687,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
 
-        gamestate.make_a_human_move("Qg7+").unwrap();
+        gamestate.make_a_human_move("Qg7+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine

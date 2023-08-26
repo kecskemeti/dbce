@@ -39,7 +39,7 @@ async fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
         .1
          .0
         .unwrap();
-    gamestate.make_a_generated_move(&to_move);
+    gamestate.make_a_generated_move(&to_move).await;
 }
 
 #[tokio::main]
@@ -69,7 +69,7 @@ async fn main() {
             let mut line = String::new();
             {
                 input.read_line(&mut line).unwrap();
-                if gamestate.make_a_human_move(line.trim()).is_ok() {
+                if gamestate.make_a_human_move(line.trim()).await.is_ok() {
                     break;
                 }
             }

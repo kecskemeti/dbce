@@ -87,7 +87,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                     let mut allmoves = gamestate["moves"].as_str().unwrap().to_owned();
                     allmoves.retain(|c| c != '"');
                     if let Some(lastmove) = allmoves.split_ascii_whitespace().last() {
-                        state.make_an_uci_move(lastmove)?;
+                        state.make_an_uci_move(lastmove).await?;
                     }
                     let currentboard = state.psboard();
                     // we make sure we still have at least 20 moves to do before we run out of time.
