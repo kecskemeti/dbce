@@ -39,11 +39,10 @@ use async_scoped::TokioScope;
 use async_trait::async_trait;
 use global_counter::primitive::fast::FlushingCounterU32;
 use tokio::spawn;
-use tokio::sync::Mutex;
 
 use std::time::Duration;
 use tokio::task::yield_now;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -77,11 +76,17 @@ impl Explore for SeqEngine {
             let explore_allowed = self.0.exploration_allowed.load(Relaxed);
             let curr_score = if !is_mate(board_with_move.score)
                 && explore_allowed
-                && a.curr_depth < 10
+                && a.curr_depth < a.max_allowed_depth
             {
                 let (_, best_score) = self
                     .0
-                    .best_move_for_internal(board_with_move, a.curr_depth + 1, a.counter, a.maximum)
+                    .best_move_for_internal(
+                        board_with_move,
+                        a.curr_depth + 1,
+                        a.counter,
+                        a.maximum,
+                        a.max_allowed_depth,
+                    )
                     .await;
                 best_score
             } else {
@@ -127,6 +132,7 @@ impl Explore for ParEngine {
                     a.counter,
                     a.maximum,
                     a.curr_depth,
+                    a.max_allowed_depth,
                 ));
             }
         });
@@ -158,11 +164,18 @@ impl ParEngine {
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
         curr_depth: u8,
+        max_allowed_depth: u8,
     ) -> (f32, PossibleMove, BoardContinuation) {
         engine_clone.thread_counter.fetch_add(1, Relaxed);
         let board_with_move = board_clone.lookup_continuation_or_create(&curr_move, counter);
         let (_, curr_score) = engine_clone
-            .best_move_for_internal(board_with_move, curr_depth + 1, counter, maximum)
+            .best_move_for_internal(
+                board_with_move,
+                curr_depth + 1,
+                counter,
+                maximum,
+                max_allowed_depth,
+            )
             .await;
         counter.flush();
         engine_clone.thread_counter.fetch_sub(1, Relaxed);
@@ -177,6 +190,7 @@ pub struct ExplorationInput<'a> {
     max_search: [f32; 4],
     counter: &'a FlushingCounterU32,
     maximum: &'a AtomicU8,
+    max_allowed_depth: u8,
 }
 
 pub struct ExplorationOutput {
@@ -192,9 +206,19 @@ impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<
         board_count: &FlushingCounterU32,
         depth: &AtomicU8,
     ) -> (Option<PossibleMove>, f32) {
-        self.0
-            .best_move_for_internal(self.1, 0, board_count, depth)
-            .await
+        let mut best_move_and_score = (None, f32::NAN);
+        let mut depth_allowed = 3;
+        while self.0.exploration_allowed.load(Relaxed) {
+            println!("before {:?}", Instant::now());
+            best_move_and_score = self
+                .0
+                .best_move_for_internal(self.1, 0, board_count, depth, depth_allowed)
+                .await;
+            depth_allowed += 2;
+            println!("after {:?}", Instant::now());
+        }
+
+        best_move_and_score
     }
 }
 
@@ -263,6 +287,7 @@ impl Engine {
         curr_depth: u8,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
+        max_allowed_depth: u8,
     ) -> (Option<PossibleMove>, f32) {
         let mut ret = (None, start_board.score);
         let mate_multiplier = start_board.who_moves.mate_multiplier();
@@ -290,6 +315,7 @@ impl Engine {
                 curr_depth,
                 counter,
                 maximum,
+                max_allowed_depth,
             )
             .await;
 
@@ -343,6 +369,7 @@ impl Engine {
         curr_depth: u8,
         counter: &FlushingCounterU32,
         maximum: &AtomicU8,
+        max_allowed_depth: u8,
     ) {
         start_board.adjusted_score = 0.0;
         let who = start_board.who_moves;
@@ -356,6 +383,7 @@ impl Engine {
                 max_search,
                 counter,
                 maximum,
+                max_allowed_depth,
             })
             .await
             .max_search;
@@ -443,6 +471,7 @@ mod test {
                     0,
                     board_count,
                     depth,
+                    5,
                 )
                 .await
         }
