@@ -531,8 +531,8 @@ mod test {
 
     impl GameState {
         async fn make_a_move_pair(&mut self, engine_move: &str, opponent_move: &str) {
-            self.make_a_human_move_or_panic(engine_move).await;
-            self.make_a_human_move_or_panic(opponent_move).await;
+            self.make_a_human_move_or_panic(engine_move);
+            self.make_a_human_move_or_panic(opponent_move);
         }
     }
 
@@ -630,7 +630,7 @@ mod test {
         let (engine, mut gamestate) = prep_failed_game_4().await;
         helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(200))
             .await;
-        gamestate.make_a_human_move_or_panic("cxb2").await;
+        gamestate.make_a_human_move_or_panic("cxb2");
         let the_board = gamestate.continuation().clone();
         let mut moves = Vec::new();
         the_board.gen_potential_moves(&mut moves);
@@ -652,7 +652,7 @@ mod test {
             .find_continuation(&a_selected_move)
             .unwrap();
         let continuations_before = the_selected_board.total_continuation_boards();
-        gamestate.make_a_generated_move(&a_selected_move).await;
+        gamestate.make_a_generated_move(&a_selected_move);
         let (_, _, board_count, depth) =
             engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
@@ -669,7 +669,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
 
-        gamestate.make_a_human_move("Rc1+").await.unwrap();
+        gamestate.make_a_human_move("Rc1+").unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -689,7 +689,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
 
-        gamestate.make_a_human_move("Qxf6+").await.unwrap();
+        gamestate.make_a_human_move("Qxf6+").unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -716,7 +716,7 @@ mod test {
         let (engine, mut gamestate) =
             Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
 
-        gamestate.make_a_human_move("Qg7+").await.unwrap();
+        gamestate.make_a_human_move("Qg7+").unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine

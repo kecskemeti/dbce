@@ -27,6 +27,7 @@ impl Castling {
             BlackQueenSide => 'q',
         }
     }
+    
     pub fn from_notation(notation: &str, color: PieceColor) -> IntResult<Castling> {
         let castle_type = notation.split('-').count();
         let piece_rep = match castle_type {
@@ -36,7 +37,8 @@ impl Castling {
         };
         format!("{piece_rep}").chars().next().unwrap().try_into()
     }
-    pub fn from_king_move(&self, king_move: BaseMove) -> Option<PossibleMove> {
+    
+    pub fn move_via_king_move(&self, king_move: BaseMove) -> Option<PossibleMove> {
         let castling_move: &PossibleMove = (*self).into();
         if king_move == castling_move.the_move {
             Some(*castling_move)

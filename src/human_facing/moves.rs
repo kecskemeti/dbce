@@ -26,7 +26,9 @@ use crate::baserules::piece_kind::PieceKind;
 use crate::baserules::piece_kind::PieceKind::King;
 use crate::baserules::positions::AbsoluteBoardPos;
 use crate::engine::continuation::BoardContinuation;
-use crate::util::{IntResult, TryWithPanic};
+use crate::util::TryWithPanic;
+
+pub type BoardParseResult = Result<BoardContinuation, (String, BoardContinuation)>;
 
 fn accept_promotion(promote_kind: &Option<PieceKind>, candidate_move: &PossibleMove) -> bool {
     promote_kind.map_or_else(
@@ -41,7 +43,7 @@ fn accept_promotion(promote_kind: &Option<PieceKind>, candidate_move: &PossibleM
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
-pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<BoardContinuation> {
+pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
     let mut col = Vec::new();
@@ -51,14 +53,33 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<
         'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' => {
             col.push(AbsoluteBoardPos::parse_column(first_char.try_into().unwrap()).unwrap())
         }
-        'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = first_char.try_into()?,
+        'K' | 'Q' | 'N' | 'R' | 'B' => piece_kind = first_char.transform(),
         'O' => castling = true,
-        _ => panic!("Unexpected chess notation"),
+        _ => {
+            return Err((
+                format!("Unexpected chess notation: {first_char} in {the_move}"),
+                board,
+            ));
+        }
     }
+    let mut all_moves = Vec::new();
+    board.gen_potential_moves(&mut all_moves);
     let found_move = if castling {
-        let castling_done = Castling::from_notation(the_move, board.who_moves).unwrap();
+        let castling_done = match Castling::from_notation(the_move, board.who_moves) {
+            Ok(castle_kind) => castle_kind,
+            Err(issue) => {
+                return Err((
+                    format!("Unexpected castling notation: {the_move}, reason: {issue:?}"),
+                    board,
+                ))
+            }
+        };
         let castling_move: &PossibleMove = castling_done.into();
-        Some(*castling_move)
+        if all_moves.contains(castling_move) {
+            Some(*castling_move)
+        } else {
+            None
+        }
     } else {
         let mut row = Vec::new();
         let mut promotion = false;
@@ -79,17 +100,22 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<
                     '=' => promotion = true,
                     'Q' | 'R' | 'B' | 'K' => {
                         if promotion {
-                            promote_kind = Some(consecutive.try_into()?);
+                            promote_kind = Some(consecutive.transform());
                         }
                     }
-                    _ => panic!("Unexpected notation in second char"),
+                    _ => {
+                        return Err((
+                            format!(
+                                "Unexpected chess notation in char: {consecutive} in {the_move}"
+                            ),
+                            board,
+                        ));
+                    }
                 }
             } else {
                 break;
             }
         }
-        let mut all_moves = Vec::new();
-        board.gen_potential_moves(&mut all_moves);
         let target = (row.pop().unwrap(), col.pop().unwrap()).transform();
         let filter: Box<dyn Fn(&Option<PieceKind>, &PossibleMove) -> bool> = if row.is_empty() {
             if col.is_empty() {
@@ -120,9 +146,14 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<
                 && filter(&promote_kind, candidate_move)
         })
     };
-    found_move
-        .map(|im| board.make_cached_move(&im))
-        .ok_or_else(|| format!("Cannot understand move {the_move}").into())
+    if let Some(move_to_take) = found_move {
+        Ok(board.make_cached_move(&move_to_take))
+    } else {
+        Err((
+            format!("Impossible move, but apparently good notation: {the_move}"),
+            board,
+        ))
+    }
 }
 
 /// Allows moves to be translated from lichess to our internal representation
@@ -139,13 +170,30 @@ pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> IntResult<
 /// let opera_result = make_an_uci_move(opera_game, "d1d8").unwrap();
 /// assert_eq!("1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17", opera_result.to_fen());
 /// ```
-pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<BoardContinuation> {
+pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
     let len = the_move.len();
     assert!(len < 6 && len > 3);
     let raw_move = the_move.as_bytes();
-    let the_move = BaseMove::from_uci(the_move)?;
+    let the_move = if let Ok(uci_move) = BaseMove::from_uci(the_move) {
+        uci_move
+    } else {
+        return Err((
+            format!("Incorrect first part of UCI notation: {the_move}"),
+            board,
+        ));
+    };
     let the_complete_move = if len == 5 {
-        let promote_kind = (raw_move[4] as char).try_into()?;
+        let promote_kind = if let Ok(kind) = (raw_move[4] as char).try_into() {
+            kind
+        } else {
+            return Err((
+                format!(
+                    "Incorrect promotion notation '{}' in {the_move}",
+                    raw_move[4]
+                ),
+                board,
+            ));
+        };
         PossibleMove {
             the_move,
             pawn_promotion: Some(promote_kind),
@@ -158,7 +206,7 @@ pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> IntResult<B
             board
                 .castling
                 .iter()
-                .find_map(|c| c.from_king_move(the_move))
+                .find_map(|c| c.move_via_king_move(the_move))
                 .unwrap_or(simple_move)
         } else {
             simple_move
@@ -181,7 +229,7 @@ mod test {
         assert!(result.is_ok());
         assert_eq!(
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
-            result.unwrap().to_fen()
+            result.ok().unwrap().to_fen()
         );
     }
 
@@ -193,13 +241,13 @@ mod test {
         if let Some(white_move) = premove {
             let after_move = make_an_uci_move(cont, white_move);
             assert!(after_move.is_ok());
-            cont = after_move.unwrap();
+            cont = after_move.ok().unwrap();
         }
         let result = make_an_uci_move(cont, uci);
         assert!(result.is_ok());
         assert_eq!(
             format!("{exp_black}/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/{exp_white}"),
-            result.unwrap().raw.to_fen_prefix()
+            result.ok().unwrap().raw.to_fen_prefix()
         );
     }
 

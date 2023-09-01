@@ -25,7 +25,7 @@ use dbce::engine::gamestate::GameState;
 use dbce::engine::Engine;
 use dbce::human_facing::helper::calculate_move_for_console;
 use lazy_static::lazy_static;
-use rand::{thread_rng, Rng};
+use rand::random;
 use std::time::Duration;
 
 lazy_static! {
@@ -39,7 +39,7 @@ async fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
         .1
          .0
         .unwrap();
-    gamestate.make_a_generated_move(&to_move).await;
+    gamestate.make_a_generated_move(&to_move);
 }
 
 #[tokio::main]
@@ -58,7 +58,7 @@ async fn main() {
     } else {
         Engine::new()
     };
-    let machine_moves_first: bool = thread_rng().gen();
+    let machine_moves_first: bool = random();
     if machine_moves_first {
         make_machine_move(&engine, &mut gamestate).await;
     }
@@ -69,11 +69,13 @@ async fn main() {
             let mut line = String::new();
             {
                 input.read_line(&mut line).unwrap();
-                if gamestate.make_a_human_move(line.trim()).await.is_ok() {
+                let maybe_board_with_move = gamestate.make_a_human_move(line.trim());
+                if let Err(an_error) = maybe_board_with_move {
+                    println!("Problem with your move: {an_error:?}");
+                } else {
                     break;
                 }
             }
-            println!("Sorry, I can't understand {line}");
         }
         println!("Current board: {}", gamestate.psboard());
         if !is_mate(gamestate.psboard().score) {

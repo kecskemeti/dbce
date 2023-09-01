@@ -1,6 +1,6 @@
 [package]
 name = "dbce"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Gabor Kecskemeti"]
 edition = "2021"
 default-run = "lichess"
@@ -12,7 +12,7 @@ lazy_static = "1.4.0"
 custom_error = "1.9.2"
 rand = "0.8.5"
 tikv-jemallocator = "0.5.4"
-reqwest = { version = "0.11.18", features = ["stream", "json"] }
+reqwest = { version = "0.11.20", features = ["stream", "json"] }
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["fs"] }
 tokio-util = { version = "0.7.8", features = ["full"] }
@@ -23,7 +23,7 @@ enumset = "1.1.2"
 rustc-hash = "1.1.0"
 enum-iterator = "1.4.1"
 global_counter = "0.2.2"
-sysinfo = "0.29.8"
+sysinfo = "0.29.9"
 generational-arena = "0.2.9"
 itertools = "0.11.0"
 async-scoped = {version="0.7.1",features = ["tokio","use-tokio"]}
