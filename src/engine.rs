@@ -71,7 +71,8 @@ impl Explore for SeqEngine {
         while let Some(curr_move) = a.moves.pop() {
             let board_with_move = a
                 .start_board
-                .lookup_continuation_or_create(&curr_move, a.counter);
+                .lookup_continuation_or_create(&curr_move, a.counter)
+                .await;
             yield_now().await;
             let explore_allowed = self.0.exploration_allowed.load(Relaxed);
             let curr_score = if !is_mate(board_with_move.score)
@@ -167,7 +168,9 @@ impl ParEngine {
         max_allowed_depth: u8,
     ) -> (f32, PossibleMove, BoardContinuation) {
         engine_clone.thread_counter.fetch_add(1, Relaxed);
-        let board_with_move = board_clone.lookup_continuation_or_create(&curr_move, counter);
+        let board_with_move = board_clone
+            .lookup_continuation_or_create(&curr_move, counter)
+            .await;
         let (_, curr_score) = engine_clone
             .best_move_for_internal(
                 board_with_move,
@@ -224,7 +227,7 @@ impl<'a> DepthsBoardCountMaintenance<(Option<PossibleMove>, f32)> for ExtEngine<
 
 impl Engine {
     pub fn new() -> (Self, GameState) {
-        Self::with_board_gen(PSBoard::default)
+        Self::with_board_gen(PSBoard::default())
     }
 
     async fn time_up(&self, duration: Duration) {
@@ -232,8 +235,8 @@ impl Engine {
         self.exploration_allowed.store(false, Relaxed);
     }
 
-    pub fn from_fen(fen: &str) -> (Self, GameState) {
-        Self::with_board_gen(|| PSBoard::from_fen(fen).expect("Incorrect fen input"))
+    pub async fn from_fen(fen: &str) -> (Self, GameState) {
+        Self::with_board_gen(PSBoard::from_fen(fen).await.expect("Incorrect fen input"))
     }
 
     fn par_explore(&self) -> ParEngine {
@@ -244,14 +247,14 @@ impl Engine {
         SeqEngine(self.clone())
     }
 
-    fn with_board_gen(initial_board_provider: impl Fn() -> PSBoard) -> (Self, GameState) {
+    fn with_board_gen(initial_board: PSBoard) -> (Self, GameState) {
         (
             Self {
                 enable_parallel: Arc::new(AtomicBool::new(true)),
                 exploration_allowed: Arc::new(AtomicBool::new(true)),
                 thread_counter: Arc::new(AtomicU8::new(0)),
             },
-            GameState::new(initial_board_provider()),
+            GameState::new(initial_board),
         )
     }
 
@@ -427,7 +430,8 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_1() {
         let (engine, mut gamestate) =
-            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4");
+            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6q1/4P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 4")
+                .await;
         let moves = vec![PossibleMove::simple_from_uci("d1h5").unwrap()];
 
         let result = Engine::manage_counter(ExploreHelper(
@@ -445,7 +449,8 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_2() {
         let (engine, mut gamestate) =
-            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
+            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4")
+                .await;
         let (_, (_, score)) = helper::calculate_move_for_console(
             &engine,
             &mut gamestate,
@@ -481,7 +486,8 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_3() {
         let (engine, mut gamestate) =
-            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4");
+            Engine::from_fen("r1b1kbnr/pppn1ppp/4p3/6qQ/4P3/8/PPPP1PPP/RNB1K1NR b KQkq - 1 4")
+                .await;
         let moves = vec![PossibleMove::simple_from_uci("g5d2").unwrap()];
 
         let result = Engine::manage_counter(ExploreHelper(
@@ -499,7 +505,8 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_4() {
         let (engine, mut gamestate) =
-            Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
+            Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11")
+                .await;
         let moves = vec![PossibleMove::simple_from_uci("b3f7").unwrap()];
 
         let result = Engine::manage_counter(ExploreHelper(
@@ -517,7 +524,8 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_4_1() {
         let (engine, mut gamestate) =
-            Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11");
+            Engine::from_fen("r2qk2r/pp1nbppp/2p5/5b2/4p3/PQ6/1P1PPPPP/R1B1KBNR w KQkq - 4 11")
+                .await;
         let (_, (best, _)) = helper::calculate_move_for_console(
             &engine,
             &mut gamestate,
@@ -531,8 +539,8 @@ mod test {
 
     impl GameState {
         async fn make_a_move_pair(&mut self, engine_move: &str, opponent_move: &str) {
-            self.make_a_human_move_or_panic(engine_move);
-            self.make_a_human_move_or_panic(opponent_move);
+            self.make_a_human_move_or_panic(engine_move).await;
+            self.make_a_human_move_or_panic(opponent_move).await;
         }
     }
 
@@ -553,7 +561,7 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn weird_eval_5() {
         let (engine, mut gamestate) =
-            Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26");
+            Engine::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/8/1r1K2PP/5R2 w - - 0 26").await;
         let initial_duration = Duration::from_secs(1);
         engine
             .build_continuation_and_move(&mut gamestate, &initial_duration, "Kc3", "Rxg2")
@@ -589,7 +597,8 @@ mod test {
     /// Tests for this game: https://lichess.org/73Bl5rBonV45
     async fn prep_failed_game_4() -> (Engine, GameState) {
         let (engine, mut gamestate) =
-            Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11");
+            Engine::from_fen("rn2kbnr/p1q1pNpp/1pp1P3/3p4/8/2N5/PPP1QPPP/R1B1KR2 b Qkq - 2 11")
+                .await;
         let normal_duration = Duration::from_millis(100);
         engine
             .build_continuation_and_move(&mut gamestate, &normal_duration, "d4", "Nxh8")
@@ -630,7 +639,7 @@ mod test {
         let (engine, mut gamestate) = prep_failed_game_4().await;
         helper::calculate_move_for_console(&engine, &mut gamestate, &Duration::from_millis(200))
             .await;
-        gamestate.make_a_human_move_or_panic("cxb2");
+        gamestate.make_a_human_move_or_panic("cxb2").await;
         let the_board = gamestate.continuation().clone();
         let mut moves = Vec::new();
         the_board.gen_potential_moves(&mut moves);
@@ -640,7 +649,7 @@ mod test {
 
     #[test(flavor = "multi_thread")]
     async fn retain_boards() {
-        let (engine, mut gamestate) = Engine::from_fen("8/8/8/8/6PP/6Pk/7P/7K w - - 0 1");
+        let (engine, mut gamestate) = Engine::from_fen("8/8/8/8/6PP/6Pk/7P/7K w - - 0 1").await;
         let short_deadline = Duration::from_millis(1);
         let (_, _, _, depth) = engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
@@ -652,7 +661,7 @@ mod test {
             .find_continuation(&a_selected_move)
             .unwrap();
         let continuations_before = the_selected_board.total_continuation_boards();
-        gamestate.make_a_generated_move(&a_selected_move);
+        gamestate.make_a_generated_move(&a_selected_move).await;
         let (_, _, board_count, depth) =
             engine.best_move_for(&mut gamestate, &short_deadline).await;
         println!("Max Depth: {depth}");
@@ -665,11 +674,12 @@ mod test {
     #[test(flavor = "multi_thread")]
     async fn failed_game_1() {
         let board = PSBoard::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/5PP1/R1r1K1NR w KQ - 1 26")
+            .await
             .unwrap();
         let (engine, mut gamestate) =
-            Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25");
+            Engine::from_fen("5rk1/2q2p1p/5Q2/3p4/1P2p1bP/P3P3/2r2PP1/R3K1NR b KQ - 0 25").await;
 
-        gamestate.make_a_human_move("Rc1+").unwrap();
+        gamestate.make_a_human_move("Rc1+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -684,12 +694,13 @@ mod test {
     /// Tests for this game: https://lichess.org/DbFqFBaYGgr6
     #[test(flavor = "multi_thread")]
     async fn failed_game_2() {
-        let board =
-            PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14").unwrap();
+        let board = PSBoard::from_fen("rnbk3r/1p1p3p/5Q1n/2N2P2/p7/8/PPP2KPP/R1B2B1R b - - 0 14")
+            .await
+            .unwrap();
         let (engine, mut gamestate) =
-            Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14");
+            Engine::from_fen("rnbk3r/1p1p3p/3Q1p1n/2N2P2/p7/8/PPP2KPP/R1B2B1R w - - 4 14").await;
 
-        gamestate.make_a_human_move("Qxf6+").unwrap();
+        gamestate.make_a_human_move("Qxf6+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine
@@ -712,11 +723,13 @@ mod test {
         let board = PSBoard::from_fen(
             "1rbq1knr/1npp2Q1/p4P1p/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 b - - 1 23",
         )
+        .await
         .unwrap();
         let (engine, mut gamestate) =
-            Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23");
+            Engine::from_fen("1rbq1knr/1npp4/p4PQp/1p1P4/1P1B2p1/N2B4/P1P2PPP/1R3RK1 w - - 0 23")
+                .await;
 
-        gamestate.make_a_human_move("Qg7+").unwrap();
+        gamestate.make_a_human_move("Qg7+").await.unwrap();
         assert_eq!(format!("{board}"), format!("{}", gamestate.psboard()));
 
         let move_to_do = engine

@@ -369,10 +369,11 @@ mod test {
 
     use crate::util::TryWithPanic;
 
-    #[test]
-    fn do_not_take_own_piece_to_castle() {
+    #[tokio::test]
+    async fn do_not_take_own_piece_to_castle() {
         let board =
             PSBoard::from_fen("r1b1kbnr/pppn1ppp/4p3/7Q/4Pq2/8/PPPP1PPP/RNB1K1NR w KQkq - 2 5")
+                .await
                 .unwrap();
         let mut moves = Vec::new();
         board.gen_king_moves("e1".transform(), &mut moves);
@@ -394,9 +395,11 @@ mod test {
             .any(|a_move| unacceptable_moves.contains(a_move)));
     }
 
-    #[test]
-    fn all_rook_moves() {
-        let board = PSBoard::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/2K5/7r/1R6 w - - 0 28").unwrap();
+    #[tokio::test]
+    async fn all_rook_moves() {
+        let board = PSBoard::from_fen("2b2rk1/p2p1ppp/8/P7/R2PPP2/2K5/7r/1R6 w - - 0 28")
+            .await
+            .unwrap();
         let mut moves = Vec::new();
         PieceKind::Rook.gen_moves(&board, "b1".transform(), &mut moves);
         let expected_moves: HashSet<String> = HashSet::from([
