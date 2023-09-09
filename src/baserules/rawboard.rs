@@ -131,7 +131,7 @@ impl RawBoard {
     /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5").unwrap();
     /// assert_eq!(MATE, scholars_mate.raw.score());
     /// ```
-    pub fn score(&self) -> f32 {
+    pub async fn score(&self) -> f32 {
         let (loc_score, white_king_found, black_king_found) = self
             .into_iter()
             .filter_map(|c_p| *c_p)
@@ -434,9 +434,10 @@ impl<'a> ExactSizeIterator for RawBoardIterator<'a> {}
 mod test {
     use crate::baserules::rawboard::MATE;
     use crate::baserules::{board::PSBoard, board_rep::BaseMove};
+    use tokio::test;
 
     #[test]
-    fn iterator_test() {
+    async fn iterator_test() {
         let psboard = PSBoard::default();
         let mut iter = psboard.raw.into_iter();
         assert_eq!(&psboard["a1"], iter.next().unwrap());
@@ -445,19 +446,22 @@ mod test {
     }
 
     #[test]
-    fn test_mate() {
+    async fn test_mate() {
         let board: PSBoard =
             PSBoard::from_fen("rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
+                .await
                 .unwrap();
 
-        let score = board.score();
+        let score = board.score().await;
         let piece_move: BaseMove = "b1c3".try_into().unwrap();
-        let impossible_board = board.make_move_noncached(&piece_move.into());
+        let impossible_board = board.make_move_noncached(&piece_move.into()).await;
 
         let piece_move_impossible: BaseMove = "h4e1".try_into().unwrap();
-        let mate_board = impossible_board.make_move_noncached(&piece_move_impossible.into());
+        let mate_board = impossible_board
+            .make_move_noncached(&piece_move_impossible.into())
+            .await;
 
-        let mate_score = mate_board.score();
+        let mate_score = mate_board.score().await;
         assert_eq!(
             mate_score,
             impossible_board.who_moves.mate_multiplier() * MATE

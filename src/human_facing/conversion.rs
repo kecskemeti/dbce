@@ -98,7 +98,7 @@ impl PSBoard {
     /// <https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation>
     /// # Panics
     /// When the input string is an incorrect fen
-    pub fn from_fen(fen: &str) -> IntResult<Self> {
+    pub async fn from_fen(fen: &str) -> IntResult<Self> {
         let mut raw = RawBoard::empty();
         let mut next_move = None;
         let mut castling = EnumSet::empty();
@@ -137,7 +137,7 @@ impl PSBoard {
             }
         }
         Ok(PSBoard {
-            score: raw.score(),
+            score: raw.score().await,
             raw,
             who_moves: next_move.unwrap_or_else(|| panic!("Unspecified whose turn it is!")),
             king_move_gen: if castling.is_empty() {
