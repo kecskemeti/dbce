@@ -62,15 +62,15 @@ impl BoardContinuation {
     }
 
     #[inline]
-    pub async fn make_cached_move(mut self, the_move: &PossibleMove) -> Self {
+    pub fn make_cached_move(mut self, the_move: &PossibleMove) -> Self {
         if let Some(cont) = self.find_continuation_remove(the_move) {
             cont
         } else {
-            Self::new(self.make_move_noncached(the_move).await)
+            Self::new(self.make_move_noncached(the_move))
         }
     }
 
-    pub async fn lookup_continuation_or_create<'a>(
+    pub fn lookup_continuation_or_create<'a>(
         &'a mut self,
         amove: &PossibleMove,
         counter: &FlushingCounterU32,
@@ -79,7 +79,7 @@ impl BoardContinuation {
             self.find_continuation_mut(amove).unwrap()
         } else {
             counter.inc();
-            let psb = self.make_move_noncached(amove).await;
+            let psb = self.make_move_noncached(amove);
             self.insert_psboard(amove, psb);
             self.find_continuation_mut(amove).unwrap()
         }
@@ -235,24 +235,24 @@ mod test {
     use generational_arena::Arena;
     use std::sync::Arc;
 
-    async fn create_simple_cont() -> BoardContinuation {
+    fn create_simple_cont() -> BoardContinuation {
         let mut first = BoardContinuation {
             board: Arc::new(PSBoard::default()),
             adjusted_score: f32::NAN,
             continuation: Arena::new(),
         };
         let e2e4 = PossibleMove::simple_from_uci("e2e4").unwrap();
-        first.insert_psboard(&e2e4, PSBoard::default().make_move_noncached(&e2e4).await);
+        first.insert_psboard(&e2e4, PSBoard::default().make_move_noncached(&e2e4));
         first
     }
 
-    #[tokio::test]
-    async fn merge_two_simple() {
-        let mut acont = create_simple_cont().await;
-        let mut bcont = create_simple_cont().await;
+    #[test]
+    fn merge_two_simple() {
+        let mut acont = create_simple_cont();
+        let mut bcont = create_simple_cont();
         let first_move = *bcont.keys().next().unwrap();
         let e7e5 = PossibleMove::simple_from_uci("e7e5").unwrap();
-        let new_board = bcont.make_move_noncached(&e7e5).await;
+        let new_board = bcont.make_move_noncached(&e7e5);
         let inner_cont = bcont.find_continuation_mut(&first_move).unwrap();
         inner_cont.insert_psboard(&e7e5, new_board);
         let btotal = bcont.total_continuation_boards();

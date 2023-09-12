@@ -87,7 +87,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                     let mut allmoves = gamestate["moves"].as_str().unwrap().to_owned();
                     allmoves.retain(|c| c != '"');
                     if let Some(lastmove) = allmoves.split_ascii_whitespace().last() {
-                        state.make_an_uci_move(lastmove).await?;
+                        state.make_an_uci_move(lastmove)?;
                     }
                     let currentboard = state.psboard();
                     // we make sure we still have at least 20 moves to do before we run out of time.
@@ -114,8 +114,7 @@ async fn play_a_game(gameid: &str, botid: &str, client: &Client) -> IntResult<Op
                         for _ in 0..3 {
                             // it is our turn, let's see what we can come up with
                             let (dur, mymove) =
-                                helper::calculate_move_for_console(&engine, &mut state, &deadline)
-                                    .await;
+                                helper::calculate_move_for_console(&engine, &mut state, &deadline);
                             ourmovetime = dur;
                             if detected_color.is_this_resignable(mymove.1) {
                                 println!("Resign...");

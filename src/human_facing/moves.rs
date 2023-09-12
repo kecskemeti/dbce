@@ -43,7 +43,7 @@ fn accept_promotion(promote_kind: &Option<PieceKind>, candidate_move: &PossibleM
 
 /// Reads short algebraic notation and translates it to our internal structures
 /// <https://en.wikipedia.org/wiki/Algebraic_notation_(chess)>
-pub async fn make_a_human_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
+pub fn make_a_human_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
     let mut rev_move: String = the_move.chars().rev().collect();
     let first_char = rev_move.pop().unwrap();
     let mut col = Vec::new();
@@ -147,7 +147,7 @@ pub async fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Boar
         })
     };
     if let Some(move_to_take) = found_move {
-        Ok(board.make_cached_move(&move_to_take).await)
+        Ok(board.make_cached_move(&move_to_take))
     } else {
         Err((
             format!("Impossible move, but apparently good notation: {the_move}"),
@@ -166,11 +166,11 @@ pub async fn make_a_human_move(board: BoardContinuation, the_move: &str) -> Boar
 /// use dbce::baserules::board::PSBoard;
 /// use dbce::engine::continuation::BoardContinuation;
 /// use dbce::human_facing::moves::make_an_uci_move;
-/// let opera_game = BoardContinuation::new(PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17").unwrap());
-/// let opera_result = make_an_uci_move(opera_game, "d1d8").unwrap();
+/// let opera_game = BoardContinuation::new(PSBoard::from_fen("1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17").ok().unwrap());
+/// let opera_result = make_an_uci_move(opera_game, "d1d8").ok().unwrap();
 /// assert_eq!("1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17", opera_result.to_fen());
 /// ```
-pub async fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
+pub fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> BoardParseResult {
     let len = the_move.len();
     assert!(len < 6 && len > 3);
     let raw_move = the_move.as_bytes();
@@ -212,7 +212,7 @@ pub async fn make_an_uci_move(board: BoardContinuation, the_move: &str) -> Board
             simple_move
         }
     };
-    Ok(board.make_cached_move(&the_complete_move).await)
+    Ok(board.make_cached_move(&the_complete_move))
 }
 
 #[cfg(test)]
@@ -220,15 +220,12 @@ mod test {
     use crate::baserules::board::PSBoard;
     use crate::engine::continuation::BoardContinuation;
     use crate::human_facing::moves::{make_a_human_move, make_an_uci_move};
-    use tokio::test;
 
     #[test]
-    async fn test_rook_takes() {
-        let board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30")
-            .await
-            .unwrap();
+    fn test_rook_takes() {
+        let board = PSBoard::from_fen("1Rb1r1k1/p4ppp/3p4/P7/2RPPP2/2K5/7r/8 w - - 0 30").unwrap();
         let cont = BoardContinuation::new(board);
-        let result = make_a_human_move(cont, "Rcxc8").await;
+        let result = make_a_human_move(cont, "Rcxc8");
         assert!(result.is_ok());
         assert_eq!(
             "1RR1r1k1/p4ppp/3p4/P7/3PPP2/2K5/7r/8 b - - 0 30",
@@ -236,18 +233,17 @@ mod test {
         );
     }
 
-    async fn test_castle_base(premove: Option<&str>, uci: &str, exp_black: &str, exp_white: &str) {
+    fn test_castle_base(premove: Option<&str>, uci: &str, exp_black: &str, exp_white: &str) {
         let board =
             PSBoard::from_fen("r3k2r/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/R3K2R w KQkq - 2 9")
-                .await
                 .unwrap();
         let mut cont = BoardContinuation::new(board);
         if let Some(white_move) = premove {
-            let after_move = make_an_uci_move(cont, white_move).await;
+            let after_move = make_an_uci_move(cont, white_move);
             assert!(after_move.is_ok());
             cont = after_move.ok().unwrap();
         }
-        let result = make_an_uci_move(cont, uci).await;
+        let result = make_an_uci_move(cont, uci);
         assert!(result.is_ok());
         assert_eq!(
             format!("{exp_black}/pbpqppbp/1pnp1np1/8/8/1PNP1NP1/PBPQPPBP/{exp_white}"),
@@ -256,20 +252,20 @@ mod test {
     }
 
     #[test]
-    async fn test_black_castle_queenside() {
-        test_castle_base(Some("e1g1"), "e8c8", "2kr3r", "R4RK1").await;
+    fn test_black_castle_queenside() {
+        test_castle_base(Some("e1g1"), "e8c8", "2kr3r", "R4RK1");
     }
 
     #[test]
-    async fn test_black_castle_kingside() {
-        test_castle_base(Some("e1g1"), "e8g8", "r4rk1", "R4RK1").await;
+    fn test_black_castle_kingside() {
+        test_castle_base(Some("e1g1"), "e8g8", "r4rk1", "R4RK1");
     }
     #[test]
-    async fn test_white_castle_queenside() {
-        test_castle_base(None, "e1c1", "r3k2r", "2KR3R").await;
+    fn test_white_castle_queenside() {
+        test_castle_base(None, "e1c1", "r3k2r", "2KR3R");
     }
     #[test]
-    async fn test_white_castle_kingside() {
-        test_castle_base(None, "e1g1", "r3k2r", "R4RK1").await;
+    fn test_white_castle_kingside() {
+        test_castle_base(None, "e1g1", "r3k2r", "R4RK1");
     }
 }

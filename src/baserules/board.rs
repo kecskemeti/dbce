@@ -119,7 +119,7 @@ impl PSBoard {
     /// let ruy_lopez = kings_knight_opening.make_move_noncached(&bishop_moves);
     /// assert_eq!("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3", ruy_lopez.to_fen());
     /// ```
-    pub async fn make_move_noncached(&self, the_move: &PossibleMove) -> Self {
+    pub fn make_move_noncached(&self, the_move: &PossibleMove) -> Self {
         let mut raw_board = self.raw;
         // The move for almost all the cases
         let piece_before_move = self[the_move.the_move.from];
@@ -150,7 +150,7 @@ impl PSBoard {
         let (castling, king_move_gen) =
             self.determine_castling_rights(current_piece, the_move, &piece_potentially_taken);
         PSBoard {
-            score: raw_board.score().await,
+            score: raw_board.score(),
             raw: raw_board,
             who_moves: current_piece.color.invert(),
             ep: if current_piece.kind == Pawn
@@ -243,11 +243,10 @@ mod test {
     use crate::util::TryWithPanic;
     use enumset::enum_set;
 
-    #[tokio::test]
-    async fn check_castling_when_rook_taken() {
+    #[test]
+    fn check_castling_when_rook_taken() {
         let silly_white =
             PSBoard::from_fen("rn1qkbnr/pbpppppp/1p6/8/5P2/3P2P1/PPP1P2P/RNBQKBNR b KQkq - 0 1")
-                .await
                 .unwrap();
         let moving_piece = 'b'.transform();
         let captured_piece = Some('R'.transform());
@@ -261,7 +260,6 @@ mod test {
 
         let crazy_white =
             PSBoard::from_fen("rnbqkbnr/pp1ppppp/8/8/4P1P1/3P1P1P/PpP5/RNBQKBNR b KQkq - 0 1")
-                .await
                 .unwrap();
         let moving_piece = 'p'.transform();
         let captured_piece = Some('R'.transform());
@@ -278,11 +276,10 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn check_castling_when_rook_moves() {
+    #[test]
+    fn check_castling_when_rook_moves() {
         let casual_rook_black =
             PSBoard::from_fen("rnbqkbnr/1ppppppp/8/p7/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 1")
-                .await
                 .unwrap();
         let moving_piece = 'r'.transform();
         let the_move = PossibleMove::simple_from_uci("a8a6").unwrap();
@@ -295,7 +292,6 @@ mod test {
 
         let attacking_rook_black =
             PSBoard::from_fen("rnbqkbnr/pppppp2/8/6P1/6p1/5P2/PPPPP3/RNBQKBNR b KQkq - 0 1")
-                .await
                 .unwrap();
         let moving_piece = 'r'.transform();
         let captured_piece = Some('R'.transform());
@@ -308,11 +304,10 @@ mod test {
         assert_eq!(queenside_castle(), castling_result);
     }
 
-    #[tokio::test]
-    async fn check_castling_when_king_moves() {
+    #[test]
+    fn check_castling_when_king_moves() {
         let bongcloud_opening_prep =
             PSBoard::from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1")
-                .await
                 .unwrap();
         let moving_piece = 'K'.transform();
         let making_the_bongcloud = PossibleMove::simple_from_uci("e1e2").unwrap();
@@ -325,19 +320,16 @@ mod test {
         assert_eq!(black_can_castle(), castling_result);
     }
 
-    #[tokio::test]
-    async fn move_castling() {
+    #[test]
+    fn move_castling() {
         let prep_for_castle =
             PSBoard::from_fen("rnbqk2r/pppp1ppp/3bpn2/8/8/3BPN2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
-                .await
                 .unwrap();
-        let after_move = prep_for_castle
-            .make_move_noncached(&PossibleMove {
-                the_move: BaseMove::from_uci("e1g1").unwrap(),
-                pawn_promotion: None,
-                rook: Some(BaseMove::from_uci("h1f1").unwrap()),
-            })
-            .await;
+        let after_move = prep_for_castle.make_move_noncached(&PossibleMove {
+            the_move: BaseMove::from_uci("e1g1").unwrap(),
+            pawn_promotion: None,
+            rook: Some(BaseMove::from_uci("h1f1").unwrap()),
+        });
         assert_eq!(
             PieceState {
                 kind: King,

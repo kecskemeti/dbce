@@ -32,18 +32,16 @@ lazy_static! {
     static ref ENGINE_THINK_TIME: Duration = Duration::from_secs(5);
 }
 
-async fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
+fn make_machine_move(engine: &Engine, gamestate: &mut GameState) {
     println!("It's my move now, let me think:");
     let to_move = calculate_move_for_console(engine, gamestate, &ENGINE_THINK_TIME)
-        .await
         .1
          .0
         .unwrap();
-    gamestate.make_a_generated_move(&to_move).await;
+    gamestate.make_a_generated_move(&to_move);
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let input = std::io::stdin();
     println!("Custom starting position?");
     let mut line = String::new();
@@ -54,13 +52,13 @@ async fn main() {
         println!("What is the FEN of the starting position?");
         let mut line = String::new();
         input.read_line(&mut line).unwrap();
-        Engine::from_fen(&line).await
+        Engine::from_fen(&line)
     } else {
         Engine::new()
     };
     let machine_moves_first: bool = random();
     if machine_moves_first {
-        make_machine_move(&engine, &mut gamestate).await;
+        make_machine_move(&engine, &mut gamestate);
     }
     while !is_mate(gamestate.psboard().score) {
         println!("Current board: {}", gamestate.psboard());
@@ -69,7 +67,7 @@ async fn main() {
             let mut line = String::new();
             {
                 input.read_line(&mut line).unwrap();
-                let maybe_board_with_move = gamestate.make_a_human_move(line.trim()).await;
+                let maybe_board_with_move = gamestate.make_a_human_move(line.trim());
                 if let Err(an_error) = maybe_board_with_move {
                     println!("Problem with your move: {an_error:?}");
                 } else {
@@ -79,7 +77,7 @@ async fn main() {
         }
         println!("Current board: {}", gamestate.psboard());
         if !is_mate(gamestate.psboard().score) {
-            make_machine_move(&engine, &mut gamestate).await;
+            make_machine_move(&engine, &mut gamestate);
         } else {
             break;
         }
