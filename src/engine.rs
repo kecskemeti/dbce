@@ -37,6 +37,7 @@ use crate::baserules::rawboard::is_mate;
 use crate::engine::continuation::BoardContinuation;
 use crate::engine::gamestate::GameState;
 use global_counter::primitive::fast::FlushingCounterU32;
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use std::time::{Duration, Instant};
 
@@ -62,9 +63,11 @@ impl Explore for SeqEngine {
     fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let who = a.start_board.who_moves;
         while let Some(curr_move) = a.moves.pop() {
+            // extract into function 67-103 and use in seq + par engine (160-167)
             let board_with_move = a
                 .start_board
                 .lookup_continuation_or_create(&curr_move, a.counter);
+
             let explore_allowed = self.0.exploration_allowed.load(Relaxed);
             let curr_score = if !is_mate(board_with_move.score)
                 && explore_allowed
@@ -109,18 +112,21 @@ impl Explore for SeqEngine {
 
 impl Explore for ParEngine {
     fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
-        let mut joins = Vec::new();
-        while let Some(curr_move) = a.moves.pop() {
-            joins.push(Self::exploration_thread(
-                a.start_board.clone(),
-                self.0.clone(),
-                curr_move,
-                a.counter,
-                a.maximum,
-                a.curr_depth,
-                a.max_allowed_depth,
-            ));
-        }
+        let joins: Vec<_> = a
+            .moves
+            .par_iter()
+            .map(|curr_move| {
+                Self::exploration_thread(
+                    a.start_board.clone(),
+                    self.0.clone(),
+                    *curr_move,
+                    a.counter,
+                    a.maximum,
+                    a.curr_depth,
+                    a.max_allowed_depth,
+                )
+            })
+            .collect();
         let who = a.start_board.who_moves;
         for join in joins {
             let (curr_score, curr_move, board_clone): (f32, PossibleMove, BoardContinuation) = join;
