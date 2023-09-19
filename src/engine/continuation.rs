@@ -135,6 +135,12 @@ impl BoardContinuation {
             .map(|(_, (_, continutation))| continutation)
     }
 
+    pub fn mut_values(&mut self) -> impl Iterator<Item = &mut Self> {
+        self.continuation
+            .iter_mut()
+            .map(|(_, (_, continutation))| continutation)
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &PossibleMove> {
         self.continuation
             .iter()

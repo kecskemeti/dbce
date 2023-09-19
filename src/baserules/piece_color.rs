@@ -174,7 +174,7 @@ impl PieceColor {
     }
 
     #[inline]
-    pub const fn score_comparator(&self) -> impl FnMut(&f32, &f32) -> Ordering {
+    pub const fn score_comparator(&self) -> impl Fn(&f32, &f32) -> Ordering {
         match self {
             White => |a: &f32, b: &f32| a.partial_cmp(b).unwrap(),
             Black => |a: &f32, b: &f32| b.partial_cmp(a).unwrap(),

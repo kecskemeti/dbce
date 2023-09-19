@@ -37,7 +37,7 @@ use crate::baserules::rawboard::is_mate;
 use crate::engine::continuation::BoardContinuation;
 use crate::engine::gamestate::GameState;
 use global_counter::primitive::fast::FlushingCounterU32;
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::*;
 
 use std::time::{Duration, Instant};
 
@@ -62,47 +62,66 @@ trait Explore: Send + Sync {
 impl Explore for SeqEngine {
     fn explore<'a>(&'a self, mut a: ExplorationInput<'a>) -> ExplorationOutput {
         let who = a.start_board.who_moves;
-        while let Some(curr_move) = a.moves.pop() {
-            // extract into function 67-103 and use in seq + par engine (160-167)
-            let board_with_move = a
+        let score_comparator = who.score_comparator();
+        let mut score_options: Vec<_> = a
+            .moves
+            .into_iter()
+            .map(|cur_move| {
+                (
+                    a.start_board
+                        .lookup_continuation_or_create(&cur_move, a.counter)
+                        .score,
+                    cur_move,
+                )
+            })
+            .collect();
+
+        score_options.par_sort_by(move |t1, t2| score_comparator(&t1.0, &t2.0));
+        if let Some((score_limit, _)) =
+            score_options.get(score_options.len().checked_sub(5).unwrap_or_default())
+        {
+            let possible_continuations = a
                 .start_board
-                .lookup_continuation_or_create(&curr_move, a.counter);
+                .mut_values()
+                .filter(|board| who.is_better_score(*score_limit, board.score));
 
-            let explore_allowed = self.0.exploration_allowed.load(Relaxed);
-            let curr_score = if !is_mate(board_with_move.score)
-                && explore_allowed
-                && a.curr_depth < a.max_allowed_depth
-            {
-                let (_, best_score) = self.0.best_move_for_internal(
-                    board_with_move,
-                    a.curr_depth + 1,
-                    a.counter,
-                    a.maximum,
-                    a.max_allowed_depth,
-                );
-                best_score
-            } else {
-                let mut val_before = a.maximum.load(Relaxed);
-                loop {
-                    let cur_max = a.maximum.fetch_max(a.curr_depth, Relaxed);
-                    if cur_max == a.curr_depth {
-                        let res = a
-                            .maximum
-                            .compare_exchange(val_before, cur_max, Relaxed, Relaxed);
+            for board_with_move in possible_continuations {
+                let explore_allowed = self.0.exploration_allowed.load(Relaxed);
+                let curr_score = if !is_mate(board_with_move.score)
+                    && explore_allowed
+                    && a.curr_depth < a.max_allowed_depth
+                {
+                    let (_, best_score) = self.0.best_move_for_internal(
+                        board_with_move,
+                        a.curr_depth + 1,
+                        a.counter,
+                        a.maximum,
+                        a.max_allowed_depth,
+                    );
+                    best_score
+                } else {
+                    let mut val_before = a.maximum.load(Relaxed);
+                    loop {
+                        let cur_max = a.maximum.fetch_max(a.curr_depth, Relaxed);
+                        if cur_max == a.curr_depth {
+                            let res = a
+                                .maximum
+                                .compare_exchange(val_before, cur_max, Relaxed, Relaxed);
 
-                        if let Err(err) = res {
-                            val_before = err;
+                            if let Err(err) = res {
+                                val_before = err;
+                            } else {
+                                break;
+                            }
                         } else {
                             break;
                         }
-                    } else {
-                        break;
                     }
-                }
-                board_with_move.score
-            };
+                    board_with_move.score
+                };
 
-            Engine::update_max_search(who, &mut a.max_search, curr_score);
+                Engine::update_max_search(who, &mut a.max_search, curr_score);
+            }
         }
         ExplorationOutput {
             max_search: a.max_search,
