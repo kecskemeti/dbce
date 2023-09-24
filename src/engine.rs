@@ -83,7 +83,8 @@ impl Explore for SeqEngine {
             let possible_continuations = a
                 .start_board
                 .mut_values()
-                .filter(|board| who.is_better_score(*score_limit, board.score));
+                .filter(|board| who.is_better_score_or_equal(*score_limit, board.score))
+                .take(5);
 
             for board_with_move in possible_continuations {
                 let explore_allowed = self.0.exploration_allowed.load(Relaxed);

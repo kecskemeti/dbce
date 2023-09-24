@@ -190,6 +190,22 @@ impl PieceColor {
     }
 
     #[inline]
+    pub fn is_better_score_or_equal(&self, good: f32, candidate: f32) -> bool {
+        let good_abs = good.abs();
+        let candidate_abs = candidate.abs();
+        let dist_from_zero = (good_abs - candidate_abs).abs();
+
+        if dist_from_zero < 0.005 {
+            true
+        } else {
+            match self {
+                White => good < candidate,
+                Black => good > candidate,
+            }
+        }
+    }
+
+    #[inline]
     pub const fn worst_score(&self) -> f32 {
         match self {
             White => f32::NEG_INFINITY,
