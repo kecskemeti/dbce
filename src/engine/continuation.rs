@@ -93,13 +93,14 @@ impl BoardContinuation {
         self.continuation.is_empty()
     }
 
-    pub fn search_leaves(&self) -> impl Iterator<Item = &Self> {
-        let direct_leaves = self.values().filter(|a| a.is_leaf());
-        let indirect_leaves = self
-            .values()
-            .filter(|a| !a.is_leaf())
-            .flat_map(|b| b.search_leaves())
-            .filter(|_| true);
+    pub fn search_leaves(&self) -> impl Iterator<Item = &BoardContinuation> {
+        let direct_leaves: Box<dyn Iterator<Item = &BoardContinuation>> =
+            Box::new(self.values().filter(|a| a.is_leaf()));
+        let indirect_leaves: Box<dyn Iterator<Item = &BoardContinuation>> = Box::new(
+            self.values()
+                .filter(|a| !a.is_leaf())
+                .flat_map(|b| b.search_leaves()),
+        );
         direct_leaves.chain(indirect_leaves)
     }
 
