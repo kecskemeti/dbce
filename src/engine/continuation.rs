@@ -89,6 +89,21 @@ impl BoardContinuation {
         self.keys().any(|possible_move| possible_move == the_move)
     }
 
+    pub fn is_leaf(&self) -> bool {
+        self.continuation.is_empty()
+    }
+
+    pub fn search_leaves(&self) -> impl Iterator<Item = &BoardContinuation> {
+        let direct_leaves: Box<dyn Iterator<Item = &BoardContinuation>> =
+            Box::new(self.values().filter(|a| a.is_leaf()));
+        let indirect_leaves: Box<dyn Iterator<Item = &BoardContinuation>> = Box::new(
+            self.values()
+                .filter(|a| !a.is_leaf())
+                .flat_map(|b| b.search_leaves()),
+        );
+        direct_leaves.chain(indirect_leaves)
+    }
+
     pub fn insert_psboard(&mut self, the_move: &PossibleMove, board: PSBoard) {
         self.continuation.insert((*the_move, Self::new(board)));
     }

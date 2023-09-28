@@ -83,44 +83,22 @@ impl Explore for SeqEngine {
             let possible_continuations = a
                 .start_board
                 .mut_values()
-                .filter(|board| who.is_better_score(*score_limit, board.score));
-
-            for board_with_move in possible_continuations {
-                let explore_allowed = self.0.exploration_allowed.load(Relaxed);
-                let curr_score = if !is_mate(board_with_move.score)
-                    && explore_allowed
-                    && a.curr_depth < a.max_allowed_depth
-                {
-                    let (_, best_score) = self.0.best_move_for_internal(
+                .filter(|board| who.is_better_score_or_equal(*score_limit, board.score))
+                .take(5);
+            let scores: Vec<_> = possible_continuations
+                .map(|board_with_move| {
+                    self.0.do_best_move(
                         board_with_move,
-                        a.curr_depth + 1,
+                        a.curr_depth,
                         a.counter,
                         a.maximum,
                         a.max_allowed_depth,
-                    );
-                    best_score
-                } else {
-                    let mut val_before = a.maximum.load(Relaxed);
-                    loop {
-                        let cur_max = a.maximum.fetch_max(a.curr_depth, Relaxed);
-                        if cur_max == a.curr_depth {
-                            let res = a
-                                .maximum
-                                .compare_exchange(val_before, cur_max, Relaxed, Relaxed);
+                    )
+                })
+                .collect();
 
-                            if let Err(err) = res {
-                                val_before = err;
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                    board_with_move.score
-                };
-
-                Engine::update_max_search(who, &mut a.max_search, curr_score);
+            for score in scores {
+                Engine::update_max_search(who, &mut a.max_search, score);
             }
         }
         ExplorationOutput {
@@ -284,6 +262,48 @@ impl Engine {
             Self::manage_counter(ExtEngine(self.clone(), &mut state.worked_on_board));
 
         (best_move, score, board_count, maximum)
+    }
+
+    pub fn do_best_move(
+        &self,
+        board_with_move: &mut BoardContinuation,
+        curr_depth: u8,
+        counter: &FlushingCounterU32,
+        maximum: &AtomicU8,
+        max_allowed_depth: u8,
+    ) -> f32 {
+        let explore_allowed = self.exploration_allowed.load(Relaxed);
+        let curr_score =
+            if !is_mate(board_with_move.score) && explore_allowed && curr_depth < max_allowed_depth
+            {
+                let (_, best_score) = self.best_move_for_internal(
+                    board_with_move,
+                    curr_depth + 1,
+                    counter,
+                    maximum,
+                    max_allowed_depth,
+                );
+                best_score
+            } else {
+                let mut val_before = maximum.load(Relaxed);
+                loop {
+                    let cur_max = maximum.fetch_max(curr_depth, Relaxed);
+                    if cur_max == curr_depth {
+                        let res = maximum.compare_exchange(val_before, cur_max, Relaxed, Relaxed);
+
+                        if let Err(err) = res {
+                            val_before = err;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                board_with_move.score
+            };
+
+        curr_score
     }
 
     fn best_move_for_internal(
