@@ -155,13 +155,14 @@ impl ParEngine {
     ) -> (f32, PossibleMove, BoardContinuation) {
         engine_clone.thread_counter.fetch_add(1, Relaxed);
         let board_with_move = board_clone.lookup_continuation_or_create(&curr_move, counter);
-        let (_, curr_score) = engine_clone.best_move_for_internal(
+        let curr_score = engine_clone.do_best_move(
             board_with_move,
-            curr_depth + 1,
+            curr_depth,
             counter,
             maximum,
             max_allowed_depth,
         );
+
         counter.flush();
         engine_clone.thread_counter.fetch_sub(1, Relaxed);
         (curr_score, curr_move, board_clone)

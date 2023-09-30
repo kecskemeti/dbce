@@ -5,6 +5,7 @@ use rand::{thread_rng, Rng};
 use generational_arena::Arena;
 use global_counter::primitive::fast::FlushingCounterU32;
 use itertools::Itertools;
+use rayon::prelude::*;
 use std::{ops::Deref, sync::Arc};
 
 #[derive(Clone)]
@@ -102,6 +103,40 @@ impl BoardContinuation {
                 .flat_map(|b| b.search_leaves()),
         );
         direct_leaves.chain(indirect_leaves)
+    }
+
+    pub fn good_leaf_score(&self, score_drift: u8) -> Option<f32> {
+        let score_comparator = self.who_moves.score_comparator();
+        let mut score_options: Vec<_> = self.search_leaves().map(|board| board.score).collect();
+        score_options.par_sort_by(move |t1, t2| score_comparator(t1, t2));
+
+        score_options
+            .get(
+                score_options
+                    .len()
+                    .checked_sub(score_drift.into())
+                    .unwrap_or_default(),
+            )
+            .cloned()
+    }
+
+    pub fn make_all_moves(
+        &mut self,
+        possible_moves: impl IntoIterator<Item = PossibleMove>,
+        counter: &FlushingCounterU32,
+    ) {
+        possible_moves.into_iter().for_each(move |cur_move| {
+            self.lookup_continuation_or_create(&cur_move, counter);
+        });
+    }
+
+    pub fn one_good_continuation(&mut self, score_limit: f32, score_drift: u8) -> &mut Self {
+        let who = self.who_moves;
+        let choices = self.continuation.len().min(score_drift.into());
+        self.mut_values()
+            .filter(|board| who.is_better_score_or_equal(score_limit, board.score))
+            .nth(thread_rng().gen_range(0..choices))
+            .unwrap()
     }
 
     pub fn insert_psboard(&mut self, the_move: &PossibleMove, board: PSBoard) {
