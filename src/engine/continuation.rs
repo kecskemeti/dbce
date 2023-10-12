@@ -105,6 +105,18 @@ impl BoardContinuation {
         direct_leaves.chain(indirect_leaves)
     }
 
+    /*
+    pub fn search_leaves_mut(&mut self) -> impl Iterator<Item = &mut BoardContinuation> {
+        let direct_leaves: Box<dyn Iterator<Item = &mut BoardContinuation>> =
+            Box::new(self.mut_values().filter(|a| a.is_leaf()));
+        let indirect_leaves: Box<dyn Iterator<Item = &mut BoardContinuation>> = Box::new(
+            self.mut_values()
+                .filter(|a| !a.is_leaf())
+                .flat_map(|b| b.search_leaves()),
+        );
+        direct_leaves.chain(indirect_leaves)
+    }*/
+
     pub fn good_leaf_score(&self, score_drift: u8) -> Option<f32> {
         let score_comparator = self.who_moves.score_comparator();
         let mut score_options: Vec<_> = self.search_leaves().map(|board| board.score).collect();
@@ -130,14 +142,15 @@ impl BoardContinuation {
         });
     }
 
+    /*
     pub fn one_good_continuation(&mut self, score_limit: f32, score_drift: u8) -> &mut Self {
         let who = self.who_moves;
         let choices = self.continuation.len().min(score_drift.into());
-        self.mut_values()
+        self.search_leaves_mut()
             .filter(|board| who.is_better_score_or_equal(score_limit, board.score))
             .nth(thread_rng().gen_range(0..choices))
             .unwrap()
-    }
+    }*/
 
     pub fn insert_psboard(&mut self, the_move: &PossibleMove, board: PSBoard) {
         self.continuation.insert((*the_move, Self::new(board)));

@@ -22,6 +22,7 @@
  */
 pub mod continuation;
 pub mod gamestate;
+pub mod master_tree;
 
 use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;

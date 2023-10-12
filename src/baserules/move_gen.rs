@@ -30,8 +30,9 @@ use crate::util::TryWithPanic;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::cmp::{max, min};
+use std::hash::Hash;
 
-pub(crate) trait KingMove: Sync {
+pub(crate) trait KingMove: Sync + Hash {
     fn gen_king_moves(
         &self,
         board: &PSBoard,
@@ -40,6 +41,7 @@ pub(crate) trait KingMove: Sync {
     );
 }
 
+#[derive(Hash)]
 pub struct Castle(pub &'static NotCastle);
 
 pub static CASTLE_ALLOWED: Castle = Castle(&CASTLE_FORBIDDEN);
@@ -92,6 +94,7 @@ impl KingMove for Castle {
     }
 }
 
+#[derive(Hash)]
 pub struct NotCastle;
 pub static CASTLE_FORBIDDEN: NotCastle = NotCastle;
 

@@ -37,7 +37,7 @@ pub fn is_mate(score: f32) -> bool {
     (score.abs() - MATE).abs() < 50.0
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct RawBoard([u32; 8]);
 
 impl RawBoard {

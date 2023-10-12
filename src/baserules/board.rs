@@ -39,6 +39,7 @@ use enumset::EnumSet;
 use super::move_gen::{KingMove, CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 
 /// The internal representation of the chessboard after a given move.
+#[derive(Hash)]
 pub struct PSBoard {
     /// The actual board with the 8x8 squares
     pub raw: RawBoard,
@@ -47,7 +48,7 @@ pub struct PSBoard {
     /// Tells what kind of castling is allowed
     pub castling: EnumSet<Castling>,
     /// move resolver
-    pub(crate) king_move_gen: &'static dyn KingMove,
+    pub(crate) king_move_gen: Box<dyn KingMove>,
     /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<AbsoluteBoardPos>,
     /// The number of moves done so far
