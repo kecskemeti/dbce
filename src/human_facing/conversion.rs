@@ -22,7 +22,6 @@
  */
 use crate::baserules::board::PSBoard;
 use crate::baserules::castling::Castling;
-use crate::baserules::move_gen::{CASTLE_ALLOWED, CASTLE_FORBIDDEN};
 use crate::baserules::piece_color::PieceColor;
 use crate::baserules::piece_color::PieceColor::*;
 use crate::baserules::piece_kind::PieceKind::*;
@@ -136,20 +135,16 @@ impl PSBoard {
                 _ => panic!("Too many fields in the FEN"),
             }
         }
-        Ok(PSBoard {
-            score: raw.score(),
+        let score = raw.calculate_score();
+        Ok(PSBoard::new(
             raw,
-            who_moves: next_move.unwrap_or_else(|| panic!("Unspecified whose turn it is!")),
-            king_move_gen: if castling.is_empty() {
-                &CASTLE_FORBIDDEN
-            } else {
-                &CASTLE_ALLOWED
-            },
+            next_move.unwrap_or_else(|| panic!("Unspecified whose turn it is!")),
             castling,
             ep,
-            move_count: full.unwrap_or_else(|| panic!("Unspecified move count")),
-            half_moves_since_pawn: half.unwrap_or_else(|| panic!("Unspecified half move count")),
-        })
+            full.unwrap_or_else(|| panic!("Unspecified move count")),
+            half.unwrap_or_else(|| panic!("Unspecified half move count")),
+            score,
+        ))
     }
 
     /// Allows exporting a `PSBoard` to fen for external analysis

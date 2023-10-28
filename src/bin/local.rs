@@ -60,7 +60,7 @@ fn main() {
     if machine_moves_first {
         make_machine_move(&engine, &mut gamestate);
     }
-    while !is_mate(gamestate.psboard().score) {
+    while !is_mate(gamestate.psboard().raw_score()) {
         println!("Current board: {}", gamestate.psboard());
         loop {
             println!("What's your move?");
@@ -76,7 +76,7 @@ fn main() {
             }
         }
         println!("Current board: {}", gamestate.psboard());
-        if !is_mate(gamestate.psboard().score) {
+        if !is_mate(gamestate.psboard().raw_score()) {
             make_machine_move(&engine, &mut gamestate);
         } else {
             break;

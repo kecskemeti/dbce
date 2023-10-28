@@ -119,7 +119,10 @@ impl BoardContinuation {
 
     pub fn good_leaf_score(&self, score_drift: u8) -> Option<f32> {
         let score_comparator = self.who_moves.score_comparator();
-        let mut score_options: Vec<_> = self.search_leaves().map(|board| board.score).collect();
+        let mut score_options: Vec<_> = self
+            .search_leaves()
+            .map(|board| board.raw_score())
+            .collect();
         score_options.par_sort_by(move |t1, t2| score_comparator(t1, t2));
 
         score_options
@@ -278,7 +281,7 @@ impl BoardContinuation {
                 format!(
                     "{prefix}{:depth$}{a_move} ({}/{}) - {} \n{}",
                     "",
-                    its_board.score,
+                    its_board.raw_score(),
                     its_board.adjusted_score,
                     its_board.to_fen(),
                     its_board.internal_visualise(prefix, next_depth)
@@ -289,7 +292,7 @@ impl BoardContinuation {
 
     pub fn score(&self) -> f32 {
         if self.adjusted_score.is_nan() {
-            self.score
+            self.raw_score()
         } else {
             self.adjusted_score
         }

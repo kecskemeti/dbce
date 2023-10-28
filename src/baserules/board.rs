@@ -36,10 +36,8 @@ use crate::baserules::positions::AbsoluteBoardPos;
 use crate::util::TryWithPanic;
 use enumset::EnumSet;
 
-use super::move_gen::{KingMove, CASTLE_ALLOWED, CASTLE_FORBIDDEN};
-
 /// The internal representation of the chessboard after a given move.
-#[derive(Hash)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct PSBoard {
     /// The actual board with the 8x8 squares
     pub raw: RawBoard,
@@ -47,8 +45,6 @@ pub struct PSBoard {
     pub who_moves: PieceColor,
     /// Tells what kind of castling is allowed
     pub castling: EnumSet<Castling>,
-    /// move resolver
-    pub(crate) king_move_gen: Box<dyn KingMove>,
     /// Tells if there is an en-passant move possible at the given location
     pub ep: Option<AbsoluteBoardPos>,
     /// The number of moves done so far
@@ -56,7 +52,7 @@ pub struct PSBoard {
     /// allows draw condition check
     pub half_moves_since_pawn: u16,
     /// The estimated score of this board, without considering its possible continuations
-    pub score: f32,
+    pub(crate) score_bits: u32,
 }
 
 //rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
@@ -97,13 +93,35 @@ impl Default for PSBoard {
             ep: None,
             move_count: 0,
             half_moves_since_pawn: 0,
-            score: 0f32,
-            king_move_gen: &CASTLE_ALLOWED,
+            score_bits: 0f32.to_bits(),
         }
     }
 }
 
 impl PSBoard {
+    pub fn raw_score(&self) -> f32 {
+        f32::from_bits(self.score_bits)
+    }
+
+    pub fn new(
+        raw: RawBoard,
+        who_moves: PieceColor,
+        castling: EnumSet<Castling>,
+        ep: Option<AbsoluteBoardPos>,
+        move_count: u16,
+        half_moves_since_pawn: u16,
+        score: f32,
+    ) -> Self {
+        PSBoard {
+            raw,
+            who_moves,
+            castling,
+            ep,
+            move_count,
+            half_moves_since_pawn,
+            score_bits: score.to_bits(),
+        }
+    }
     /// Makes a move as per the internal representation
     /// Note that the move is not really checked for validity
     /// We will produce a completely new internal board representation as the result of the move
@@ -148,10 +166,10 @@ impl PSBoard {
             // when we are castling, the rook move is also stored
             raw_board.make_move_with(rook_move, &self[rook_move.from]);
         }
-        let (castling, king_move_gen) =
+        let castling =
             self.determine_castling_rights(current_piece, the_move, &piece_potentially_taken);
         PSBoard {
-            score: raw_board.score(),
+            score_bits: raw_board.calculate_score().to_bits(),
             raw: raw_board,
             who_moves: current_piece.color.invert(),
             ep: if current_piece.kind == Pawn
@@ -168,7 +186,6 @@ impl PSBoard {
                 None
             },
             castling,
-            king_move_gen,
             half_moves_since_pawn: if let Pawn = piece_before_unwrapped.kind {
                 0
             } else if piece_potentially_taken.is_some() {
@@ -185,19 +202,15 @@ impl PSBoard {
         current_piece: &PieceState,
         the_move: &PossibleMove,
         possible_capture: &Option<PieceState>,
-    ) -> (EnumSet<Castling>, &'static dyn KingMove) {
+    ) -> EnumSet<Castling> {
         let mut new_castling = self.castling;
-        let mut king_mover = self.king_move_gen;
         if !self.castling.is_empty() {
-            let mut changed = false;
             if current_piece.kind == King {
-                changed = true;
                 new_castling ^= current_piece.color.all_castling();
             } else if current_piece.kind == Rook {
                 for a_castling_side in current_piece.color.all_castling() {
                     let the_castling_move: &PossibleMove = a_castling_side.into();
                     if the_castling_move.rook.unwrap().from == the_move.the_move.from {
-                        changed = true;
                         new_castling ^= a_castling_side;
                     }
                 }
@@ -209,24 +222,15 @@ impl PSBoard {
                     if taken.kind == Rook {
                         let opponent_color = current_piece.color.invert();
                         if the_move.the_move.to.1 == 0 {
-                            changed = true;
                             new_castling ^= opponent_color.queen_side_castling();
                         } else {
-                            changed = true;
                             new_castling ^= opponent_color.king_side_castling();
                         }
                     }
                 }
             }
-            if changed {
-                king_mover = if new_castling.is_empty() {
-                    &CASTLE_FORBIDDEN
-                } else {
-                    &CASTLE_ALLOWED
-                };
-            }
         }
-        (new_castling, king_mover)
+        new_castling
     }
 }
 
@@ -252,7 +256,7 @@ mod test {
         let moving_piece = 'b'.transform();
         let captured_piece = Some('R'.transform());
         let the_capture = PossibleMove::simple_from_uci("b7h1").unwrap();
-        let (castling_result, _) =
+        let castling_result =
             silly_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
         assert_eq!(
             enum_set!(BlackQueenSide | BlackKingSide | WhiteQueenSide),
@@ -269,7 +273,7 @@ mod test {
             pawn_promotion: Some(Queen),
             rook: None,
         };
-        let (castling_result, _) =
+        let castling_result =
             crazy_white.determine_castling_rights(&moving_piece, &the_capture, &captured_piece);
         assert_eq!(
             enum_set!(BlackQueenSide | BlackKingSide | WhiteKingSide),
@@ -284,7 +288,7 @@ mod test {
                 .unwrap();
         let moving_piece = 'r'.transform();
         let the_move = PossibleMove::simple_from_uci("a8a6").unwrap();
-        let (castling_result, _) =
+        let castling_result =
             casual_rook_black.determine_castling_rights(&moving_piece, &the_move, &None);
         assert_eq!(
             enum_set!(BlackKingSide | WhiteKingSide | WhiteQueenSide),
@@ -297,7 +301,7 @@ mod test {
         let moving_piece = 'r'.transform();
         let captured_piece = Some('R'.transform());
         let the_move = PossibleMove::simple_from_uci("h8h1").unwrap();
-        let (castling_result, _) = attacking_rook_black.determine_castling_rights(
+        let castling_result = attacking_rook_black.determine_castling_rights(
             &moving_piece,
             &the_move,
             &captured_piece,
@@ -313,7 +317,7 @@ mod test {
         let moving_piece = 'K'.transform();
         let making_the_bongcloud = PossibleMove::simple_from_uci("e1e2").unwrap();
 
-        let (castling_result, _) = bongcloud_opening_prep.determine_castling_rights(
+        let castling_result = bongcloud_opening_prep.determine_castling_rights(
             &moving_piece,
             &making_the_bongcloud,
             &None,
