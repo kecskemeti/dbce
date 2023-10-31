@@ -37,7 +37,7 @@ pub fn is_mate(score: f32) -> bool {
     (score.abs() - MATE).abs() < 50.0
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct RawBoard([u32; 8]);
 
 impl RawBoard {
@@ -131,7 +131,7 @@ impl RawBoard {
     /// let scholars_mate = PSBoard::from_fen("1rbqQb1r/pppp2pp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b QKqk - 9 5").unwrap();
     /// assert_eq!(MATE, scholars_mate.raw.score());
     /// ```
-    pub fn score(&self) -> f32 {
+    pub fn calculate_score(&self) -> f32 {
         let (loc_score, white_king_found, black_king_found) = self
             .into_iter()
             .filter_map(|c_p| *c_p)
@@ -450,14 +450,14 @@ mod test {
             PSBoard::from_fen("rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
                 .unwrap();
 
-        let score = board.score();
+        let score = board.calculate_score();
         let piece_move: BaseMove = "b1c3".try_into().unwrap();
         let impossible_board = board.make_move_noncached(&piece_move.into());
 
         let piece_move_impossible: BaseMove = "h4e1".try_into().unwrap();
         let mate_board = impossible_board.make_move_noncached(&piece_move_impossible.into());
 
-        let mate_score = mate_board.score();
+        let mate_score = mate_board.calculate_score();
         assert_eq!(
             mate_score,
             impossible_board.who_moves.mate_multiplier() * MATE

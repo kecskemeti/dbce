@@ -22,6 +22,7 @@
  */
 pub mod continuation;
 pub mod gamestate;
+pub mod master_tree;
 
 use crate::baserules::board::PSBoard;
 use crate::baserules::board_rep::PossibleMove;
@@ -70,7 +71,7 @@ impl Explore for SeqEngine {
                 (
                     a.start_board
                         .lookup_continuation_or_create(&cur_move, a.counter)
-                        .score,
+                        .raw_score(),
                     cur_move,
                 )
             })
@@ -83,7 +84,7 @@ impl Explore for SeqEngine {
             let possible_continuations = a
                 .start_board
                 .mut_values()
-                .filter(|board| who.is_better_score_or_equal(*score_limit, board.score))
+                .filter(|board| who.is_better_score_or_equal(*score_limit, board.raw_score()))
                 .take(5);
             let scores: Vec<_> = possible_continuations
                 .map(|board_with_move| {
@@ -132,7 +133,9 @@ impl Explore for ParEngine {
             let width = a.curr_depth as usize;
             println!(
                 "{:width$} Evaluated move: {curr_move}, score: {}, adjusted: {}",
-                "", a.start_board.score, a.start_board.adjusted_score
+                "",
+                a.start_board.raw_score(),
+                a.start_board.adjusted_score
             );
 
             a.start_board.merge(board_clone);
@@ -155,13 +158,14 @@ impl ParEngine {
     ) -> (f32, PossibleMove, BoardContinuation) {
         engine_clone.thread_counter.fetch_add(1, Relaxed);
         let board_with_move = board_clone.lookup_continuation_or_create(&curr_move, counter);
-        let (_, curr_score) = engine_clone.best_move_for_internal(
+        let curr_score = engine_clone.do_best_move(
             board_with_move,
-            curr_depth + 1,
+            curr_depth,
             counter,
             maximum,
             max_allowed_depth,
         );
+
         counter.flush();
         engine_clone.thread_counter.fetch_sub(1, Relaxed);
         (curr_score, curr_move, board_clone)
@@ -273,35 +277,36 @@ impl Engine {
         max_allowed_depth: u8,
     ) -> f32 {
         let explore_allowed = self.exploration_allowed.load(Relaxed);
-        let curr_score =
-            if !is_mate(board_with_move.score) && explore_allowed && curr_depth < max_allowed_depth
-            {
-                let (_, best_score) = self.best_move_for_internal(
-                    board_with_move,
-                    curr_depth + 1,
-                    counter,
-                    maximum,
-                    max_allowed_depth,
-                );
-                best_score
-            } else {
-                let mut val_before = maximum.load(Relaxed);
-                loop {
-                    let cur_max = maximum.fetch_max(curr_depth, Relaxed);
-                    if cur_max == curr_depth {
-                        let res = maximum.compare_exchange(val_before, cur_max, Relaxed, Relaxed);
+        let curr_score = if !is_mate(board_with_move.raw_score())
+            && explore_allowed
+            && curr_depth < max_allowed_depth
+        {
+            let (_, best_score) = self.best_move_for_internal(
+                board_with_move,
+                curr_depth + 1,
+                counter,
+                maximum,
+                max_allowed_depth,
+            );
+            best_score
+        } else {
+            let mut val_before = maximum.load(Relaxed);
+            loop {
+                let cur_max = maximum.fetch_max(curr_depth, Relaxed);
+                if cur_max == curr_depth {
+                    let res = maximum.compare_exchange(val_before, cur_max, Relaxed, Relaxed);
 
-                        if let Err(err) = res {
-                            val_before = err;
-                        } else {
-                            break;
-                        }
+                    if let Err(err) = res {
+                        val_before = err;
                     } else {
                         break;
                     }
+                } else {
+                    break;
                 }
-                board_with_move.score
-            };
+            }
+            board_with_move.raw_score()
+        };
 
         curr_score
     }
@@ -314,10 +319,10 @@ impl Engine {
         maximum: &AtomicU8,
         max_allowed_depth: u8,
     ) -> (Option<PossibleMove>, f32) {
-        let mut ret = (None, start_board.score);
+        let mut ret = (None, start_board.raw_score());
         let mate_multiplier = start_board.who_moves.mate_multiplier();
 
-        if !is_mate(start_board.score) {
+        if !is_mate(start_board.raw_score()) {
             let mut moves = Vec::new();
             start_board.gen_potential_moves(&mut moves);
             let enable_parallel = self
@@ -354,7 +359,7 @@ impl Engine {
             });
             if let Some(best_board) = best_potential_board {
                 let selected_board = if best_board.adjusted_score.is_nan() {
-                    start_board.select_similar_board(best_board, |b| b.score)
+                    start_board.select_similar_board(best_board, |b| b.raw_score())
                 } else {
                     start_board.select_similar_board(best_board, |b| b.adjusted_score)
                 };
@@ -370,7 +375,7 @@ impl Engine {
                     .unwrap();
             }
         } else {
-            start_board.adjusted_score = start_board.score;
+            start_board.adjusted_score = start_board.raw_score();
         }
         ret
     }
@@ -421,7 +426,7 @@ impl Engine {
             max_search[idx] = max_search[use_source_idx] * (idx * 2 + 1) as f32;
             // Weighted towards the best scores
         }
-        start_board.adjusted_score = (start_board.score
+        start_board.adjusted_score = (start_board.raw_score()
             + max_search
                 .iter()
                 .filter(|a_score| a_score.is_finite())

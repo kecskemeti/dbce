@@ -30,6 +30,7 @@ use crate::util::TryWithPanic;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::cmp::{max, min};
+use std::hash::Hash;
 
 pub(crate) trait KingMove: Sync {
     fn gen_king_moves(
@@ -40,6 +41,7 @@ pub(crate) trait KingMove: Sync {
     );
 }
 
+#[derive(Hash)]
 pub struct Castle(pub &'static NotCastle);
 
 pub static CASTLE_ALLOWED: Castle = Castle(&CASTLE_FORBIDDEN);
@@ -92,6 +94,7 @@ impl KingMove for Castle {
     }
 }
 
+#[derive(Hash)]
 pub struct NotCastle;
 pub static CASTLE_FORBIDDEN: NotCastle = NotCastle;
 
@@ -116,7 +119,7 @@ impl PSBoard {
     pub(crate) fn switch_sides(&self) -> PSBoard {
         PSBoard {
             who_moves: self.who_moves.invert(),
-            king_move_gen: &CASTLE_FORBIDDEN,
+            castling: enumset::EnumSet::EMPTY,
             ..*self
         }
     }
@@ -295,7 +298,12 @@ impl PSBoard {
         position: AbsoluteBoardPos,
         the_moves: &mut Vec<PossibleMove>,
     ) {
-        self.king_move_gen.gen_king_moves(self, position, the_moves);
+        let king_mover: &'static dyn KingMove = if self.castling.is_empty() {
+            &CASTLE_FORBIDDEN
+        } else {
+            &CASTLE_ALLOWED
+        };
+        king_mover.gen_king_moves(self, position, the_moves);
     }
 
     /// Pawn moves, takes and promotions
