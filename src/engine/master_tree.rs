@@ -1,4 +1,7 @@
-use std::vec;
+use std::{
+    collections::{HashMap, HashSet},
+    vec,
+};
 
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -23,6 +26,14 @@ pub struct MasterTree {
 }
 
 impl MasterTree {
+    pub fn new(root: PSBoard) -> Self {
+        MasterTree {
+            all_sub_trees: HashMap::default(),
+            leaves: HashSet::default(),
+            root,
+        }
+    }
+
     pub fn save(&mut self, completed_subtree: SubTree, move_index: (PSBoard, PossibleMove)) {
         self.leaves.remove(&move_index);
         self.leaves.extend(
@@ -92,38 +103,6 @@ impl MasterTree {
                 "unable to generate subtree with this move {the_move}"
             ))
         }
-
-        // we have moves not taken
-        // remove moves not taken classical loop
-        // if leaf on move not taken; remove
-
-        /*if let Some(new_root) = self.all_sub_trees.remove(&(self.root, the_move)) {
-            let root = new_root.board;
-            let mut all_sub_trees = FxHashMap::default();
-            let mut leaves = FxHashSet::default();
-
-            //new_root.continuation.into_iter().map(|mv|self.all_sub_trees.remove(&(root,mv)))
-            for mv in new_root.continuation {
-                let key = (root, mv);
-                if let Some(child) = self.all_sub_trees.remove(&key) {
-                    all_sub_trees.insert(key, child);
-                } else {
-                    // leaf
-                    leaves.insert(key);
-                }
-            }
-
-            Ok(MasterTree {
-                all_sub_trees,
-                leaves,
-                root,
-            })
-        } else {
-            Err((
-                format!("no subtree available with this move {the_move}"),
-                self,
-            ))
-        }*/
     }
 
     pub fn next_continuation(&mut self, score_limit: f32, score_drift: u8) -> SubTree {
@@ -143,5 +122,98 @@ impl MasterTree {
                 chosen.0, chosen.1
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::baserules::board::PSBoard;
+
+    use super::{MasterTree, SubTree};
+
+    #[test]
+    fn save_results_in_leaves() {
+        let mut master_tree = MasterTree::new(PSBoard::default());
+        let b = PSBoard::default();
+        let mut mvs = Vec::new();
+        b.gen_potential_moves(&mut mvs);
+        let first_move = mvs[0];
+        let mut sub_tree = SubTree {
+            board: b.make_move_noncached(&first_move),
+            adjusted_score: f32::NAN,
+            continuation: Vec::new(),
+        };
+        sub_tree
+            .board
+            .gen_potential_moves(&mut sub_tree.continuation);
+        let continuation_copy = sub_tree.continuation.clone();
+        let board_copy = sub_tree.board;
+        master_tree.save(sub_tree, (b, first_move));
+        assert!(continuation_copy
+            .iter()
+            .all(|val| master_tree.leaves.contains(&(board_copy, *val))));
+    }
+
+    #[test]
+    fn good_leaf_score_returns_best_score() {
+        let mut master_tree = MasterTree::new(PSBoard::default());
+        let b = PSBoard::default();
+        let mut mvs = Vec::new();
+        b.gen_potential_moves(&mut mvs);
+        let first_move = mvs[0];
+        let mut sub_tree = SubTree {
+            board: b.make_move_noncached(&first_move),
+            adjusted_score: f32::NAN,
+            continuation: Vec::new(),
+        };
+        sub_tree
+            .board
+            .gen_potential_moves(&mut sub_tree.continuation);
+
+        master_tree.save(sub_tree, (b, first_move));
+        assert!(master_tree.good_leaf_score(1).unwrap() == 0f32);
+    }
+
+    #[test]
+    fn make_move() {
+        let mut master_tree = MasterTree::new(PSBoard::default());
+        let b = PSBoard::default();
+        let mut mvs = Vec::new();
+        b.gen_potential_moves(&mut mvs);
+        let first_move = mvs[0];
+        let mut sub_tree = SubTree {
+            board: b.make_move_noncached(&first_move),
+            adjusted_score: f32::NAN,
+            continuation: Vec::new(),
+        };
+        sub_tree
+            .board
+            .gen_potential_moves(&mut sub_tree.continuation);
+        let board_copy = sub_tree.board;
+        master_tree.save(sub_tree, (b, first_move));
+        assert!(master_tree.make_move(first_move).is_ok());
+        assert_eq!(master_tree.root, board_copy);
+    }
+
+    #[test]
+    fn get_subtree_to_work_on() {
+        let mut master_tree = MasterTree::new(PSBoard::default());
+        let b = PSBoard::default();
+        let mut mvs = Vec::new();
+        b.gen_potential_moves(&mut mvs);
+        let first_move = mvs[0];
+        let mut sub_tree = SubTree {
+            board: b.make_move_noncached(&first_move),
+            adjusted_score: f32::NAN,
+            continuation: Vec::new(),
+        };
+        sub_tree
+            .board
+            .gen_potential_moves(&mut sub_tree.continuation);
+        let board_copy = sub_tree.board;
+        master_tree.save(sub_tree, (b, first_move));
+        let return_tree = master_tree.next_continuation(0f32, 1);
+        assert_eq!(board_copy, return_tree.board);
+        assert_eq!(master_tree.all_sub_trees.len(), 0);
     }
 }

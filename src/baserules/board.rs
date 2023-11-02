@@ -37,7 +37,7 @@ use crate::util::TryWithPanic;
 use enumset::EnumSet;
 
 /// The internal representation of the chessboard after a given move.
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub struct PSBoard {
     /// The actual board with the 8x8 squares
     pub raw: RawBoard,
