@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    vec,
-};
+use std::collections::HashMap;
 
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -19,6 +16,18 @@ pub struct SubTree {
     pub continuation: Vec<PossibleMove>,
 }
 
+impl SubTree {
+    pub fn calculate_continuation(board: PSBoard) -> SubTree {
+        let mut continuation = Vec::new();
+        board.gen_potential_moves(&mut continuation);
+        SubTree {
+            continuation,
+            adjusted_score: f32::NAN,
+            board,
+        }
+    }
+}
+
 pub struct MasterTree {
     pub all_sub_trees: FxHashMap<(PSBoard, PossibleMove), SubTree>,
     pub leaves: FxHashSet<(PSBoard, PossibleMove)>,
@@ -27,9 +36,11 @@ pub struct MasterTree {
 
 impl MasterTree {
     pub fn new(root: PSBoard) -> Self {
+        let mut continuation = Vec::new();
+        root.gen_potential_moves(&mut continuation);
         MasterTree {
             all_sub_trees: HashMap::default(),
-            leaves: HashSet::default(),
+            leaves: continuation.iter().map(|o| (root, *o)).collect(),
             root,
         }
     }
@@ -84,7 +95,7 @@ impl MasterTree {
         if let Some((idx, _)) = moves_not_taken
             .iter()
             .enumerate()
-            .find(|(idx, mv)| mv == &&the_move)
+            .find(|(_, mv)| mv == &&the_move)
         {
             moves_not_taken.remove(idx);
             for mv in moves_not_taken {
@@ -128,27 +139,28 @@ impl MasterTree {
 #[cfg(test)]
 mod tests {
     use crate::baserules::board::PSBoard;
+    use crate::baserules::board_rep::PossibleMove;
 
     use super::{MasterTree, SubTree};
 
-    #[test]
-    fn save_results_in_leaves() {
-        let mut master_tree = MasterTree::new(PSBoard::default());
+    fn prep_subtree() -> (SubTree, PossibleMove) {
         let b = PSBoard::default();
         let mut mvs = Vec::new();
         b.gen_potential_moves(&mut mvs);
         let first_move = mvs[0];
-        let mut sub_tree = SubTree {
-            board: b.make_move_noncached(&first_move),
-            adjusted_score: f32::NAN,
-            continuation: Vec::new(),
-        };
-        sub_tree
-            .board
-            .gen_potential_moves(&mut sub_tree.continuation);
+        (
+            SubTree::calculate_continuation(b.make_move_noncached(&first_move)),
+            first_move,
+        )
+    }
+
+    #[test]
+    fn save_results_in_leaves() {
+        let mut master_tree = MasterTree::new(PSBoard::default());
+        let (sub_tree, first_move) = prep_subtree();
         let continuation_copy = sub_tree.continuation.clone();
         let board_copy = sub_tree.board;
-        master_tree.save(sub_tree, (b, first_move));
+        master_tree.save(sub_tree, (master_tree.root, first_move));
         assert!(continuation_copy
             .iter()
             .all(|val| master_tree.leaves.contains(&(board_copy, *val))));
@@ -157,40 +169,17 @@ mod tests {
     #[test]
     fn good_leaf_score_returns_best_score() {
         let mut master_tree = MasterTree::new(PSBoard::default());
-        let b = PSBoard::default();
-        let mut mvs = Vec::new();
-        b.gen_potential_moves(&mut mvs);
-        let first_move = mvs[0];
-        let mut sub_tree = SubTree {
-            board: b.make_move_noncached(&first_move),
-            adjusted_score: f32::NAN,
-            continuation: Vec::new(),
-        };
-        sub_tree
-            .board
-            .gen_potential_moves(&mut sub_tree.continuation);
-
-        master_tree.save(sub_tree, (b, first_move));
-        assert!(master_tree.good_leaf_score(1).unwrap() == 0f32);
+        let (sub_tree, first_move) = prep_subtree();
+        master_tree.save(sub_tree, (master_tree.root, first_move));
+        assert_eq!(master_tree.good_leaf_score(1).unwrap(), 0f32);
     }
 
     #[test]
     fn make_move() {
         let mut master_tree = MasterTree::new(PSBoard::default());
-        let b = PSBoard::default();
-        let mut mvs = Vec::new();
-        b.gen_potential_moves(&mut mvs);
-        let first_move = mvs[0];
-        let mut sub_tree = SubTree {
-            board: b.make_move_noncached(&first_move),
-            adjusted_score: f32::NAN,
-            continuation: Vec::new(),
-        };
-        sub_tree
-            .board
-            .gen_potential_moves(&mut sub_tree.continuation);
+        let (sub_tree, first_move) = prep_subtree();
         let board_copy = sub_tree.board;
-        master_tree.save(sub_tree, (b, first_move));
+        master_tree.save(sub_tree, (master_tree.root, first_move));
         assert!(master_tree.make_move(first_move).is_ok());
         assert_eq!(master_tree.root, board_copy);
     }
@@ -198,20 +187,9 @@ mod tests {
     #[test]
     fn get_subtree_to_work_on() {
         let mut master_tree = MasterTree::new(PSBoard::default());
-        let b = PSBoard::default();
-        let mut mvs = Vec::new();
-        b.gen_potential_moves(&mut mvs);
-        let first_move = mvs[0];
-        let mut sub_tree = SubTree {
-            board: b.make_move_noncached(&first_move),
-            adjusted_score: f32::NAN,
-            continuation: Vec::new(),
-        };
-        sub_tree
-            .board
-            .gen_potential_moves(&mut sub_tree.continuation);
+        let (sub_tree, first_move) = prep_subtree();
         let board_copy = sub_tree.board;
-        master_tree.save(sub_tree, (b, first_move));
+        master_tree.save(sub_tree, (master_tree.root, first_move));
         let return_tree = master_tree.next_continuation(0f32, 1);
         assert_eq!(board_copy, return_tree.board);
         assert_eq!(master_tree.all_sub_trees.len(), 0);
