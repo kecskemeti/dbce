@@ -116,7 +116,7 @@ impl MasterTree {
         }
     }
 
-    pub fn next_continuation(&mut self, score_limit: f32, score_drift: u8) -> SubTree {
+    pub fn next_continuation(&mut self, score_limit: f32, score_drift: u8) -> PSBoard {
         let who = self.root.who_moves;
         let choices = self.leaves.len().min(score_drift.into());
         let chosen = *self
@@ -126,13 +126,7 @@ impl MasterTree {
             .nth(thread_rng().gen_range(0..choices))
             .unwrap();
         self.leaves.remove(&chosen);
-        let a = self.all_sub_trees.remove(&chosen);
-        a.unwrap_or_else(|| {
-            panic!(
-                "Missing entry in all sub trees board: {} move: {}",
-                chosen.0, chosen.1
-            )
-        })
+        chosen.0.make_move_noncached(&chosen.1)
     }
 }
 
@@ -188,10 +182,20 @@ mod tests {
     fn get_subtree_to_work_on() {
         let mut master_tree = MasterTree::new(PSBoard::default());
         let (sub_tree, first_move) = prep_subtree();
-        let board_copy = sub_tree.board;
         master_tree.save(sub_tree, (master_tree.root, first_move));
-        let return_tree = master_tree.next_continuation(0f32, 1);
-        assert_eq!(board_copy, return_tree.board);
-        assert_eq!(master_tree.all_sub_trees.len(), 0);
+        let item_count = master_tree.leaves.len();
+        let all_leaves: Vec<_> = master_tree
+            .leaves
+            .iter()
+            .cloned()
+            .map(|(board, a_move)| board.make_move_noncached(&a_move))
+            .filter(|leaf_board| leaf_board.raw_score() == 0f32)
+            .collect();
+
+        let return_board = master_tree.next_continuation(0f32, 2);
+        assert!(all_leaves
+            .iter()
+            .any(|leaf_board| leaf_board == &return_board));
+        assert_eq!(master_tree.leaves.len(), item_count - 1);
     }
 }
